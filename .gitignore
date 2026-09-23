@@ -1,0 +1,31 @@
+# Dados (grandes)
+dados-publicos-zip/
+!dados-publicos-zip/.gitkeep
+dados-publicos/
+!dados-publicos/.gitkeep
+data/*.duckdb
+data/*.duckdb.wal
+data/last_sync.json
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Streamlit / logs
+.streamlit/secrets.toml
+*.log

@@ -1,0 +1,7 @@
+# Dependências mínimas da imagem Docker (API)
+# Author: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
+
+duckdb>=1.1.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0

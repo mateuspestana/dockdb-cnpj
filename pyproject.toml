@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dockdb-cnpj"
+version = "0.1.0"
+description = "Base pública de CNPJ em DuckDB — download, sync, CLI, Streamlit e API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Matheus Cavalcanti Pestana", email = "matheus.pestana@fgv.br" },
+]
+maintainers = [
+  { name = "Matheus Cavalcanti Pestana", email = "matheus.pestana@fgv.br" },
+]
+keywords = ["cnpj", "duckdb", "receita-federal", "dados-abertos"]
+dependencies = [
+  "duckdb>=1.1.0",
+  "requests>=2.31.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "streamlit>=1.38.0",
+  "typer>=0.12.0",
+  "pandas>=2.2.0",
+  "pydantic>=2.0.0",
+  "python-dotenv>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mateuspestana/dockdb-cnpj"
+Author = "mailto:matheus.pestana@fgv.br"
+
+[project.scripts]
+dockdb-cnpj = "dockdb_cnpj.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+dockdb_cnpj = ["py.typed"]

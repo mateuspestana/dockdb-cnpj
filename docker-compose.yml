@@ -1,0 +1,18 @@
+# DockDB-CNPJ — API com volume montado (base gerada no host)
+# Author: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
+#
+# SEGURANÇA: sem autenticação. Porta bindada em 127.0.0.1 (rede confiável).
+# Não publique em 0.0.0.0 sem implementar auth (ver TODO.md).
+
+services:
+  api:
+    build: .
+    container_name: dockdb-cnpj-api
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      CNPJ_DB_PATH: /data/cnpj.duckdb
+      PYTHONPATH: /app/src
+    volumes:
+      - ./data/cnpj.duckdb:/data/cnpj.duckdb:ro
+    restart: unless-stopped
