@@ -3,7 +3,7 @@
 Base pública de CNPJ da Receita Federal em **[DuckDB](https://duckdb.org/)**, com download, carga, sync, CLI, Streamlit e API em Docker.
 
 **Autor:** [Matheus Cavalcanti Pestana](mailto:matheus.pestana@fgv.br) · `matheus.pestana@fgv.br`  
-**Licença:** [MIT](LICENSE)
+**Licença:** [MIT](LICENSE) · **Versão:** ver [CHANGELOG.md](CHANGELOG.md)
 
 ## Referência
 
@@ -22,6 +22,7 @@ Em lookups pontuais muito bem indexados (um CNPJ exato), o SQLite pode empatar o
 | Download | `python scripts/download_cnpj.py -y` |
 | Carga | `python scripts/load_duckdb.py` |
 | Sync | `python scripts/sync_cnpj.py -y` |
+| Limpar brutos | `python scripts/cleanup_raw.py -y` |
 | CLI | `python cli/consulta.py …` |
 | Streamlit | `streamlit run streamlit_app/app.py` |
 | API (Docker) | `docker compose up --build` → http://127.0.0.1:8000/docs |
@@ -29,7 +30,7 @@ Em lookups pontuais muito bem indexados (um CNPJ exato), o SQLite pode empatar o
 ## Pré-requisitos
 
 - Python 3.10+
-- Disco: ~25 GB para ZIPs/CSVs + dezenas de GB para `data/cnpj.duckdb` (na prática ~60–70 GB no pico)
+- Disco: ~25 GB para ZIPs/CSVs + dezenas de GB para `data/cnpj.duckdb` (na prática ~60–70 GB no pico; depois dá para limpar os brutos)
 - Docker (opcional; só para a API)
 
 ```bash
@@ -43,9 +44,14 @@ pip install -r requirements.txt
 ## Fluxo
 
 ```bash
+# 1) Baixar ZIPs do mês mais recente (Receita Federal)
 python scripts/download_cnpj.py -y
-python scripts/load_duckdb.py
 
+# 2) Extrair e carregar em data/cnpj.duckdb
+python scripts/load_duckdb.py
+# opcional: python scripts/load_duckdb.py --cleanup-raw
+
+# 3) Consultar
 python cli/consulta.py info
 python cli/consulta.py cnpj 00000000000191
 python cli/consulta.py buscar --uf SP --cnae 6201501 --limit 20
@@ -56,11 +62,22 @@ streamlit run streamlit_app/app.py
 
 ### Sync
 
+A Receita publica um dump mensal completo. O sync baixa só o que mudou (tamanho/arquivo) e recarrega a base:
+
 ```bash
 python scripts/sync_cnpj.py -y
 ```
 
-Sem cron embutido. Ver [TODO.md](TODO.md).
+Sem cron embutido — você escolhe quando rodar. Ver [TODO.md](TODO.md).
+
+### Liberar disco
+
+Com a base pronta, apague ZIPs e CSVs e mantenha só o DuckDB:
+
+```bash
+python scripts/cleanup_raw.py -y
+python scripts/cleanup_raw.py --dry-run
+```
 
 > **Aviso (ago/2026):** em sócios, `cnpj_cpf_socio` pode trazer só o radical (8 dígitos) quando o sócio é empresa. A carga resolve para o CNPJ completo da matriz (mesma correção do cnpj-sqlite).
 
@@ -80,6 +97,8 @@ docker compose up --build
 
 **Segurança:** sem autenticação. O compose publica só em `127.0.0.1:8000` (rede confiável). Não use `0.0.0.0` sem auth — ver [TODO.md](TODO.md).
 
+Sem Docker:
+
 ```bash
 export PYTHONPATH=src CNPJ_DB_PATH=data/cnpj.duckdb
 uvicorn api.main:app --host 127.0.0.1 --port 8000
@@ -89,16 +108,16 @@ uvicorn api.main:app --host 127.0.0.1 --port 8000
 
 ```
 dockdb-cnpj/
-  src/dockdb_cnpj/
-  scripts/
-  cli/
-  streamlit_app/
-  api/
+  src/dockdb_cnpj/     # núcleo
+  scripts/             # download, load, sync, cleanup_raw
+  cli/                 # CLI
+  streamlit_app/       # UI
+  api/                 # FastAPI
   exemplos/consultas.sql
   data/cnpj.duckdb     # gerado localmente (não versionado)
 ```
 
-Variáveis: [.env.example](.env.example). Token WebDAV: `CNPJ_SHARE_TOKEN`.
+Variáveis: [.env.example](.env.example). Se o WebDAV da Receita mudar o token, ajuste `CNPJ_SHARE_TOKEN`.
 
 ## Exemplos SQL
 

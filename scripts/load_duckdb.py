@@ -34,6 +34,11 @@ def main() -> int:
         help="Apagar CSVs após a carga (libera disco).",
     )
     parser.add_argument(
+        "--cleanup-raw",
+        action="store_true",
+        help="Após a carga, apagar ZIPs e CSVs (só sobra o DuckDB).",
+    )
+    parser.add_argument(
         "--db",
         type=Path,
         default=DB_PATH,
@@ -44,8 +49,12 @@ def main() -> int:
     load_duckdb(
         db_path=args.db,
         extract=not args.no_extract,
-        remove_csv_after=args.remove_csv,
+        remove_csv_after=args.remove_csv or args.cleanup_raw,
     )
+    if args.cleanup_raw:
+        from dockdb_cnpj.cleanup import cleanup_raw
+
+        cleanup_raw(db_path=args.db, remove_zip=True, remove_csv=True, require_db=True)
     print(f"Pronto: {args.db}")
     return 0
 
