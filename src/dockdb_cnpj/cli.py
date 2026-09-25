@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from typer.core import TyperGroup
 
 from dockdb_cnpj import __email__, __version__
 from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT
