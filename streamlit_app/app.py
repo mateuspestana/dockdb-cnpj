@@ -96,18 +96,24 @@ with tab_buscar:
     col1, col2, col3 = st.columns(3)
     with col1:
         uf = st.text_input("UF", placeholder="SP")
-        cnae = st.text_input("CNAE fiscal")
+        cnae = st.text_input("CNAE", help="Principal e, por padrão, também secundário")
     with col2:
         municipio = st.text_input("Código município")
         situacao = st.text_input("Situação cadastral", placeholder="02")
     with col3:
         q = st.text_input("Razão social / fantasia")
         limit = st.number_input("Limite", 1, 10000, DEFAULT_QUERY_LIMIT)
+    incluir_secundario = st.checkbox(
+        "Incluir CNAE secundário",
+        value=True,
+        help="Quando marcado, o filtro de CNAE também busca em cnae_fiscal_secundaria",
+    )
     if st.button("Buscar", type="primary"):
         rows = buscar_empresas(
             con,
             uf=uf or None,
             cnae=cnae or None,
+            incluir_cnae_secundario=incluir_secundario,
             municipio=municipio or None,
             q=q or None,
             situacao=situacao or None,

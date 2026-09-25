@@ -122,21 +122,36 @@ def buscar_empresas(
     *,
     uf: str | None = None,
     cnae: str | None = None,
+    incluir_cnae_secundario: bool = True,
     municipio: str | None = None,
     q: str | None = None,
     situacao: str | None = None,
     limit: int = DEFAULT_QUERY_LIMIT,
 ) -> list[dict]:
+    """Busca estabelecimentos. Com ``cnae``, por padrão também casa secundários."""
     limit = max(1, min(int(limit), MAX_QUERY_LIMIT))
     clauses: list[str] = []
     params: list[Any] = []
+    cnae_code = re.sub(r"\D", "", cnae) if cnae else ""
 
     if uf:
         clauses.append("est.uf = ?")
         params.append(uf.upper())
-    if cnae:
-        clauses.append("est.cnae_fiscal = ?")
-        params.append(re.sub(r"\D", "", cnae))
+    if cnae_code:
+        if incluir_cnae_secundario:
+            # Lista CSV da RF (ex.: "4784900,4712100") — match exato por código
+            clauses.append(
+                "("
+                "est.cnae_fiscal = ? OR "
+                "list_contains("
+                "string_split(COALESCE(est.cnae_fiscal_secundaria, ''), ','), ?"
+                ")"
+                ")"
+            )
+            params.extend([cnae_code, cnae_code])
+        else:
+            clauses.append("est.cnae_fiscal = ?")
+            params.append(cnae_code)
     if municipio:
         clauses.append("est.municipio = ?")
         params.append(municipio)
@@ -147,6 +162,24 @@ def buscar_empresas(
         clauses.append("(e.razao_social ILIKE ? OR est.nome_fantasia ILIKE ?)")
         like = f"%{q}%"
         params.extend([like, like])
+
+    if cnae_code and incluir_cnae_secundario:
+        cnae_origem_expr = """
+            CASE
+                WHEN est.cnae_fiscal = ? THEN 'principal'
+                WHEN list_contains(
+                    string_split(COALESCE(est.cnae_fiscal_secundaria, ''), ','), ?
+                ) THEN 'secundario'
+                ELSE NULL
+            END AS cnae_origem
+        """
+        cnae_origem_params: list[Any] = [cnae_code, cnae_code]
+    elif cnae_code:
+        cnae_origem_expr = "'principal' AS cnae_origem"
+        cnae_origem_params = []
+    else:
+        cnae_origem_expr = "NULL AS cnae_origem"
+        cnae_origem_params = []
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
@@ -159,6 +192,8 @@ def buscar_empresas(
             m.descricao AS municipio_nome,
             est.cnae_fiscal,
             c.descricao AS cnae_descricao,
+            est.cnae_fiscal_secundaria,
+            {cnae_origem_expr},
             est.situacao_cadastral,
             est.matriz_filial,
             e.capital_social
@@ -169,7 +204,10 @@ def buscar_empresas(
         {where}
         LIMIT {limit}
     """
-    return fetch_dicts(con, sql, params)
+    # SELECT params (cnae_origem) vêm antes dos WHERE params no DuckDB prepared?
+    # Na verdade os `?` seguem a ordem de aparição no SQL: SELECT first, then WHERE.
+    # Aqui cnae_origem está no SELECT (antes do WHERE), então: origem params + where params.
+    return fetch_dicts(con, sql, cnae_origem_params + params)
 
 
 def run_sql(

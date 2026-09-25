@@ -63,7 +63,12 @@ def cnpj_cmd(
 @app.command("buscar")
 def buscar_cmd(
     uf: str | None = typer.Option(None, help="UF, ex: SP"),
-    cnae: str | None = typer.Option(None, help="CNAE fiscal"),
+    cnae: str | None = typer.Option(None, help="CNAE (principal e, por padrão, secundário)"),
+    incluir_secundario: bool = typer.Option(
+        True,
+        "--incluir-secundario/--somente-principal",
+        help="Com --cnae, inclui cnae_fiscal_secundaria (padrão: sim).",
+    ),
     municipio: str | None = typer.Option(None, help="Código município RF"),
     q: str | None = typer.Option(None, help="Texto em razão social / fantasia"),
     situacao: str | None = typer.Option(None, help="Situação cadastral"),
@@ -75,6 +80,7 @@ def buscar_cmd(
             con,
             uf=uf,
             cnae=cnae,
+            incluir_cnae_secundario=incluir_secundario,
             municipio=municipio,
             q=q,
             situacao=situacao,

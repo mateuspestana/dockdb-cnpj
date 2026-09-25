@@ -57,6 +57,8 @@ python scripts/load_duckdb.py
 python cli/consulta.py info
 python cli/consulta.py cnpj 00000000000191
 python cli/consulta.py buscar --uf SP --cnae 6201501 --limit 20
+# só o CNAE principal:
+python cli/consulta.py buscar --cnae 6201501 --somente-principal --limit 20
 python cli/consulta.py sql "SELECT uf, count(*) n FROM estabelecimento GROUP BY 1 ORDER BY 2 DESC"
 
 streamlit run streamlit_app/app.py
@@ -93,7 +95,7 @@ docker compose up --build
 
 | Método | Rota |
 |--------|------|
-| GET | `/health`, `/referencia`, `/cnpj/{cnpj}`, `/empresas?uf=&cnae=&q=&limit=` |
+| GET | `/health`, `/referencia`, `/cnpj/{cnpj}`, `/empresas?uf=&cnae=&incluir_cnae_secundario=&q=&limit=` |
 | POST | `/query` — `{"sql":"SELECT …","limit":1000}` (somente SELECT/WITH) |
 | Docs | http://127.0.0.1:8000/docs |
 

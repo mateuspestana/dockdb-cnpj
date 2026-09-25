@@ -100,6 +100,10 @@ def get_cnpj(cnpj: str) -> dict[str, Any]:
 def list_empresas(
     uf: str | None = None,
     cnae: str | None = None,
+    incluir_cnae_secundario: bool = Query(
+        True,
+        description="Com cnae, busca também em cnae_fiscal_secundaria",
+    ),
     municipio: str | None = None,
     q: str | None = None,
     situacao: str | None = None,
@@ -110,6 +114,7 @@ def list_empresas(
         _con,
         uf=uf,
         cnae=cnae,
+        incluir_cnae_secundario=incluir_cnae_secundario,
         municipio=municipio,
         q=q,
         situacao=situacao,

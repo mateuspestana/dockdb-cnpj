@@ -5,6 +5,14 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
+## [0.3.0] — 2026-09-25
+
+### Added
+
+- Busca por CNAE também em `cnae_fiscal_secundaria` (lista CSV da Receita)
+- Flag `--incluir-secundario/--somente-principal` na CLI; parâmetro `incluir_cnae_secundario` na API e checkbox no Streamlit
+- Campo `cnae_origem` (`principal` / `secundario`) e `cnae_fiscal_secundaria` no resultado da busca
+
 ## [0.2.0] — 2026-09-22
 
 ### Added
@@ -30,5 +38,6 @@ Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - README com crédito ao [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - `TODO.md` com autenticação da API pendente
 
+[0.3.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mateuspestana/DockDB-CNPJ/releases/tag/v0.1.0
