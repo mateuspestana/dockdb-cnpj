@@ -1,6 +1,9 @@
 # DockDB-CNPJ
 
 [![DOI](https://zenodo.org/badge/1382603178.svg)](https://doi.org/10.5281/zenodo.22940888)
+[![versão](https://img.shields.io/github/v/release/mateuspestana/dockdb-cnpj?label=versão)](https://github.com/mateuspestana/dockdb-cnpj/releases)
+[![licença](https://img.shields.io/github/license/mateuspestana/dockdb-cnpj?label=licença)](LICENSE)
+[![atualizado](https://img.shields.io/github/last-commit/mateuspestana/dockdb-cnpj?label=atualizado)](https://github.com/mateuspestana/dockdb-cnpj/commits/main)
 
 Base pública de CNPJ da Receita Federal em **[DuckDB](https://duckdb.org/)**, com download, carga, sync, CLI, Streamlit e API em Docker.
 
