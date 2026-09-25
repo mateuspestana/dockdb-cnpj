@@ -1,5 +1,7 @@
 # DockDB-CNPJ
 
+[![DOI](https://zenodo.org/badge/1382603178.svg)](https://doi.org/10.5281/zenodo.22940888)
+
 Base pública de CNPJ da Receita Federal em **[DuckDB](https://duckdb.org/)**, com download, carga, sync, CLI, Streamlit e API em Docker.
 
 **Autor:** [Matheus Cavalcanti Pestana](mailto:matheus.pestana@fgv.br) · `matheus.pestana@fgv.br`  

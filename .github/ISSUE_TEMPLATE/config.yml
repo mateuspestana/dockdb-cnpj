@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Dúvidas e discussão
+    url: https://github.com/mateuspestana/dockdb-cnpj/issues
+    about: Prefira uma issue descritiva; para contato direto use matheus.pestana@fgv.br

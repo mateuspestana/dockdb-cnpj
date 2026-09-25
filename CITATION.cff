@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "Se você usar este software, cite-o usando os metadados abaixo."
+title: "DockDB-CNPJ"
+type: software
+authors:
+  - family-names: Pestana
+    given-names: Matheus Cavalcanti
+    email: matheus.pestana@fgv.br
+repository-code: "https://github.com/mateuspestana/dockdb-cnpj"
+url: "https://doi.org/10.5281/zenodo.22940888"
+abstract: >-
+  Base pública de CNPJ da Receita Federal em DuckDB, com download, carga,
+  sync, CLI, Streamlit e API em Docker.
+keywords:
+  - CNPJ
+  - DuckDB
+  - Receita Federal
+  - dados abertos
+  - Brasil
+license: MIT
+version: "0.2.0"
+date-released: "2026-09-22"
+doi: "10.5281/zenodo.22940888"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.22940888"
+preferred-citation:
+  type: software
+  authors:
+    - family-names: Pestana
+      given-names: Matheus Cavalcanti
+      email: matheus.pestana@fgv.br
+  title: "DockDB-CNPJ"
+  year: 2026
+  version: "0.2.0"
+  doi: "10.5281/zenodo.22940888"
+  url: "https://doi.org/10.5281/zenodo.22940888"
