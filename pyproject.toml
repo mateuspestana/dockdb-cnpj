@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dockdb-cnpj"
-version = "0.3.0"
+version = "0.5.0"
 description = "Base pública de CNPJ em DuckDB — download, sync, CLI, Streamlit e API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,9 +24,13 @@ dependencies = [
   "streamlit>=1.38.0",
   "typer>=0.12.0",
   "pandas>=2.2.0",
+  "pyarrow>=15.0.0",
   "pydantic>=2.0.0",
   "python-dotenv>=1.0.0",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/mateuspestana/dockdb-cnpj"

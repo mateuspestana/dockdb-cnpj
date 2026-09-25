@@ -8,5 +8,7 @@ uvicorn[standard]>=0.30.0
 streamlit>=1.38.0
 typer>=0.12.0
 pandas>=2.2.0
+pyarrow>=15.0.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
+pytest>=8.0.0

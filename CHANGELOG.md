@@ -5,6 +5,34 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
+## [0.5.0] — 2026-09-25
+
+### Added
+
+- Tabela ponte `estabelecimento_cnae` (principal + secundários) usada na busca
+- Views materializadas: `mv_estabelecimento_ativo`, `mv_matriz`, `mv_mei`
+- Carga resumível (`--resume` + checkpoint `{db}.load_checkpoint.json`)
+- Validação pós-carga (`validar_base`, CLI `validar`, tabela `_validacao`)
+- Full-text (FTS) em razão social + busca fuzzy (Jaro-Winkler) com `--fuzzy`
+- Painel **Analytics** no Streamlit (UF, situação, top CNAE)
+
+### Changed
+
+- Pós-processamento da carga passa a gerar ponte CNAE, MVs, FTS e validação
+- **Requer recarga** da base (`load_duckdb.py`) para ativar ponte/MVs/FTS
+
+## [0.4.0] — 2026-09-25
+
+### Added
+
+- Filtros ricos na busca: porte, MEI, Simples, matriz/filial, município por nome, capital, data de abertura
+- Export CSV/Parquet (`--export` na CLI, `GET /export` na API)
+- Lookup de sócio (CLI `socio`, `GET /socios`)
+- Decode ampliado na consulta CNPJ (porte, situação, país, qualificações, etc.)
+- Testes de integração com fixture mínima (`tests/`)
+- Notebook de exemplos (`exemplos/dockdb_cnpj_exemplos.ipynb`)
+- Agregados (`agregados` CLI / `GET /agregados/{tipo}`)
+
 ## [0.3.0] — 2026-09-25
 
 ### Added
@@ -38,6 +66,8 @@ Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - README com crédito ao [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - `TODO.md` com autenticação da API pendente
 
+[0.5.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mateuspestana/DockDB-CNPJ/releases/tag/v0.1.0

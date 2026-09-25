@@ -54,18 +54,25 @@ python scripts/download_cnpj.py -y
 
 # 2) Extrair e carregar em data/cnpj.duckdb
 python scripts/load_duckdb.py
+# retomar carga interrompida:
+# python scripts/load_duckdb.py --no-extract --resume
 # opcional: python scripts/load_duckdb.py --cleanup-raw
 
 # 3) Consultar
 python cli/consulta.py info
 python cli/consulta.py cnpj 00000000000191
-python cli/consulta.py buscar --uf SP --cnae 6201501 --limit 20
-# só o CNAE principal:
-python cli/consulta.py buscar --cnae 6201501 --somente-principal --limit 20
+python cli/consulta.py buscar --uf SP --cnae 6201501 --situacao 02 --mei --limit 20
+python cli/consulta.py buscar --uf SP --cnae 6201501 --export out.csv
+python cli/consulta.py socio --nome "SILVA" --limit 20
+python cli/consulta.py agregados uf
+python cli/consulta.py validar
 python cli/consulta.py sql "SELECT uf, count(*) n FROM estabelecimento GROUP BY 1 ORDER BY 2 DESC"
 
 streamlit run streamlit_app/app.py
+# testes: pytest
 ```
+
+> **v0.5:** após atualizar o código, **recarregue** a base (`load_duckdb.py`) para gerar `estabelecimento_cnae`, views materializadas e FTS.
 
 ### Sync
 
@@ -98,7 +105,11 @@ docker compose up --build
 
 | Método | Rota |
 |--------|------|
-| GET | `/health`, `/referencia`, `/cnpj/{cnpj}`, `/empresas?uf=&cnae=&incluir_cnae_secundario=&q=&limit=` |
+| GET | `/health`, `/referencia`, `/cnpj/{cnpj}` |
+| GET | `/empresas?uf=&cnae=&mei=&simples=&porte=&municipio_nome=&q=&fuzzy=&limit=` |
+| GET | `/socios?nome=&documento=&limit=` |
+| GET | `/agregados/{uf\|cnae\|situacao}` |
+| GET | `/export?formato=csv\|parquet&…` (mesmos filtros de `/empresas`) |
 | POST | `/query` — `{"sql":"SELECT …","limit":1000}` (somente SELECT/WITH) |
 | Docs | http://127.0.0.1:8000/docs |
 
@@ -118,9 +129,10 @@ dockdb-cnpj/
   src/dockdb_cnpj/     # núcleo
   scripts/             # download, load, sync, cleanup_raw
   cli/                 # CLI
-  streamlit_app/       # UI
+  streamlit_app/       # UI (+ Analytics)
   api/                 # FastAPI
-  exemplos/consultas.sql
+  tests/               # integração (fixture mini)
+  exemplos/            # SQL + notebook
   data/cnpj.duckdb     # gerado localmente (não versionado)
 ```
 

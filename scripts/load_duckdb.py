@@ -44,12 +44,18 @@ def main() -> int:
         default=DB_PATH,
         help=f"Caminho do .duckdb (default: {DB_PATH})",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continua carga a partir do checkpoint (não apaga a base).",
+    )
     args = parser.parse_args()
 
     load_duckdb(
         db_path=args.db,
         extract=not args.no_extract,
         remove_csv_after=args.remove_csv or args.cleanup_raw,
+        resume=args.resume,
     )
     if args.cleanup_raw:
         from dockdb_cnpj.cleanup import cleanup_raw

@@ -5,7 +5,9 @@ dados-publicos/
 !dados-publicos/.gitkeep
 data/*.duckdb
 data/*.duckdb.wal
+data/*.load_checkpoint.json
 data/last_sync.json
+data/exports/
 !data/.gitkeep
 
 # Python
@@ -19,6 +21,7 @@ build/
 .venv/
 venv/
 .env
+.pytest_cache/
 
 # IDE / OS
 .idea/

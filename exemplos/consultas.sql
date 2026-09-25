@@ -48,3 +48,14 @@ LIMIT 50;
 
 -- Referência da base
 SELECT * FROM _referencia;
+
+-- Validação pós-carga (v0.5)
+SELECT * FROM _validacao;
+
+-- Views materializadas (v0.5)
+SELECT count(*) FROM mv_estabelecimento_ativo;
+SELECT count(*) FROM mv_mei;
+SELECT count(*) FROM mv_matriz;
+
+-- Ponte CNAE (v0.5)
+SELECT tipo, count(*) FROM estabelecimento_cnae GROUP BY 1;

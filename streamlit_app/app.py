@@ -19,7 +19,11 @@ from dockdb_cnpj import __email__, __version__  # noqa: E402
 from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT  # noqa: E402
 from dockdb_cnpj.db import connect  # noqa: E402
 from dockdb_cnpj.queries import (  # noqa: E402
+    agregados_cnae,
+    agregados_situacao,
+    agregados_uf,
     buscar_empresas,
+    buscar_socios,
     consulta_cnpj,
     get_referencia,
     run_sql,
@@ -28,11 +32,7 @@ from dockdb_cnpj.sql_guard import UnsafeSQLError  # noqa: E402
 
 __author__ = "Matheus Cavalcanti Pestana"
 
-st.set_page_config(
-    page_title="DockDB-CNPJ",
-    page_icon="🦆",
-    layout="wide",
-)
+st.set_page_config(page_title="DockDB-CNPJ", page_icon="🦆", layout="wide")
 
 st.title("DockDB-CNPJ")
 st.caption(
@@ -70,9 +70,11 @@ except FileNotFoundError as e:
 
 ref = get_referencia(con)
 if ref:
-    st.info(" · ".join(f"**{r['referencia']}:** {r['valor']}" for r in ref[:4]))
+    st.info(" · ".join(f"**{r['referencia']}:** {r['valor']}" for r in ref[:5]))
 
-tab_cnpj, tab_buscar, tab_sql = st.tabs(["CNPJ", "Buscar", "SQL"])
+tab_cnpj, tab_buscar, tab_socio, tab_agg, tab_sql = st.tabs(
+    ["CNPJ", "Buscar", "Sócio", "Analytics", "SQL"]
+)
 
 with tab_cnpj:
     cnpj = st.text_input("CNPJ (8 ou 14 dígitos)", placeholder="00000000000191")
@@ -93,22 +95,28 @@ with tab_cnpj:
             st.error(str(e))
 
 with tab_buscar:
-    col1, col2, col3 = st.columns(3)
-    with col1:
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
         uf = st.text_input("UF", placeholder="SP")
-        cnae = st.text_input("CNAE", help="Principal e, por padrão, também secundário")
-    with col2:
-        municipio = st.text_input("Código município")
-        situacao = st.text_input("Situação cadastral", placeholder="02")
-    with col3:
+        cnae = st.text_input("CNAE")
+        porte = st.text_input("Porte", placeholder="01")
+    with c2:
+        municipio = st.text_input("Município (código ou nome)")
+        situacao = st.text_input("Situação", placeholder="02")
+        matriz_filial = st.selectbox("Matriz/Filial", ["", "1", "2"], format_func=lambda x: {"": "(qualquer)", "1": "Matriz", "2": "Filial"}[x])
+    with c3:
         q = st.text_input("Razão social / fantasia")
+        capital_min = st.number_input("Capital mín.", value=0.0, min_value=0.0)
+        capital_max = st.number_input("Capital máx.", value=0.0, min_value=0.0)
+    with c4:
         limit = st.number_input("Limite", 1, 10000, DEFAULT_QUERY_LIMIT)
-    incluir_secundario = st.checkbox(
-        "Incluir CNAE secundário",
-        value=True,
-        help="Quando marcado, o filtro de CNAE também busca em cnae_fiscal_secundaria",
-    )
+        mei_opt = st.selectbox("MEI", ["(qualquer)", "sim", "não"])
+        simples_opt = st.selectbox("Simples", ["(qualquer)", "sim", "não"])
+    incluir_secundario = st.checkbox("Incluir CNAE secundário", value=True)
+    fuzzy = st.checkbox("Busca fuzzy (Jaro-Winkler)", value=False)
     if st.button("Buscar", type="primary"):
+        mei = None if mei_opt.startswith("(") else mei_opt == "sim"
+        simples = None if simples_opt.startswith("(") else simples_opt == "sim"
         rows = buscar_empresas(
             con,
             uf=uf or None,
@@ -116,7 +124,14 @@ with tab_buscar:
             incluir_cnae_secundario=incluir_secundario,
             municipio=municipio or None,
             q=q or None,
+            fuzzy=fuzzy,
             situacao=situacao or None,
+            porte=porte or None,
+            matriz_filial=matriz_filial or None,
+            mei=mei,
+            simples=simples,
+            capital_min=capital_min or None,
+            capital_max=capital_max or None,
             limit=int(limit),
         )
         df = pd.DataFrame(rows)
@@ -128,6 +143,36 @@ with tab_buscar:
                 file_name="dockdb_cnpj_busca.csv",
                 mime="text/csv",
             )
+
+with tab_socio:
+    snome = st.text_input("Nome do sócio")
+    sdoc = st.text_input("CPF/CNPJ do sócio")
+    slimit = st.number_input("Limite sócios", 1, 10000, 100, key="sl")
+    if st.button("Buscar sócio", type="primary"):
+        try:
+            rows = buscar_socios(
+                con, nome=snome or None, documento=sdoc or None, limit=int(slimit)
+            )
+            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        except ValueError as e:
+            st.error(str(e))
+
+with tab_agg:
+    st.subheader("Estabelecimentos por UF")
+    df_uf = pd.DataFrame(agregados_uf(con, limit=30))
+    if not df_uf.empty:
+        st.bar_chart(df_uf.set_index("uf")["estabelecimentos"])
+        st.dataframe(df_uf, use_container_width=True)
+    st.subheader("Situação cadastral")
+    df_sit = pd.DataFrame(agregados_situacao(con))
+    if not df_sit.empty:
+        st.bar_chart(df_sit.set_index("situacao_desc")["n"])
+        st.dataframe(df_sit, use_container_width=True)
+    uf_cnae = st.text_input("UF para top CNAE", placeholder="SP", key="ufc")
+    st.subheader("Top CNAE (ativos)")
+    df_c = pd.DataFrame(agregados_cnae(con, uf=uf_cnae or None, limit=20))
+    if not df_c.empty:
+        st.dataframe(df_c, use_container_width=True)
 
 with tab_sql:
     st.markdown("Apenas `SELECT` / `WITH`. DDL/DML são bloqueados.")
@@ -143,13 +188,6 @@ with tab_sql:
             df = pd.DataFrame(result["rows"])
             st.dataframe(df, use_container_width=True)
             st.caption(f"{result['count']} linha(s)")
-            if not df.empty:
-                st.download_button(
-                    "Baixar CSV",
-                    df.to_csv(index=False).encode("utf-8"),
-                    file_name="dockdb_cnpj_sql.csv",
-                    mime="text/csv",
-                )
         except UnsafeSQLError as e:
             st.error(str(e))
         except Exception as e:
