@@ -6,4 +6,4 @@ Author: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
 __author__ = "Matheus Cavalcanti Pestana"
 __email__ = "matheus.pestana@fgv.br"
-__version__ = "0.5.0"
+__version__ = "0.5.1"

@@ -287,31 +287,67 @@ def _build_estabelecimento_cnae(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def _build_materialized_views(con: duckdb.DuckDBPyConnection) -> None:
-    print("  views materializadas …")
+    """Cria views (não cópias físicas) — evita duplicar dezenas de GB em disco."""
+    print("  views (ativos / matriz / mei) …")
+    con.execute("DROP VIEW IF EXISTS mv_estabelecimento_ativo")
     con.execute("DROP TABLE IF EXISTS mv_estabelecimento_ativo")
     con.execute(
         """
-        CREATE TABLE mv_estabelecimento_ativo AS
+        CREATE VIEW mv_estabelecimento_ativo AS
         SELECT * FROM estabelecimento WHERE situacao_cadastral = '02'
         """
     )
+    con.execute("DROP VIEW IF EXISTS mv_matriz")
     con.execute("DROP TABLE IF EXISTS mv_matriz")
     con.execute(
         """
-        CREATE TABLE mv_matriz AS
+        CREATE VIEW mv_matriz AS
         SELECT * FROM estabelecimento WHERE matriz_filial = '1'
         """
     )
+    con.execute("DROP VIEW IF EXISTS mv_mei")
     con.execute("DROP TABLE IF EXISTS mv_mei")
     con.execute(
         """
-        CREATE TABLE mv_mei AS
+        CREATE VIEW mv_mei AS
         SELECT est.*
         FROM estabelecimento est
         JOIN simples si ON si.cnpj_basico = est.cnpj_basico
         WHERE UPPER(COALESCE(si.opcao_mei, '')) = 'S'
         """
     )
+
+
+def upgrade_base(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    build_cnae_bridge: bool = True,
+    build_mvs: bool = True,
+    build_fts: bool = True,
+    run_validate: bool = True,
+) -> dict:
+    """Atualiza base já carregada com artefatos v0.5 (sem recarregar CSVs)."""
+    out: dict = {}
+    if build_cnae_bridge:
+        _build_estabelecimento_cnae(con)
+        out["estabelecimento_cnae"] = True
+    if build_mvs:
+        _build_materialized_views(con)
+        out["views"] = True
+    if build_fts:
+        fts_ok = _build_fts(con)
+        out["fts"] = fts_ok
+        try:
+            con.execute("DELETE FROM _referencia WHERE referencia = 'fts'")
+            con.execute(
+                "INSERT INTO _referencia VALUES ('fts', ?)",
+                ["1" if fts_ok else "0"],
+            )
+        except duckdb.Error:
+            pass
+    if run_validate:
+        out["validacao"] = validar_base(con, persist=True)
+    return out
 
 
 def _build_fts(con: duckdb.DuckDBPyConnection) -> bool:

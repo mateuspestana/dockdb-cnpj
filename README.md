@@ -72,7 +72,7 @@ streamlit run streamlit_app/app.py
 # testes: pytest
 ```
 
-> **v0.5:** após atualizar o código, **recarregue** a base (`load_duckdb.py`) para gerar `estabelecimento_cnae`, views materializadas e FTS.
+> **v0.5:** após atualizar o código, **recarregue** a base (`load_duckdb.py`) **ou** rode `python cli/consulta.py upgrade` (exige lock exclusivo de escrita) para gerar `estabelecimento_cnae`, views e FTS.
 
 ### Sync
 

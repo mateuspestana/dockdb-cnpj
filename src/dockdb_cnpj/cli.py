@@ -178,12 +178,62 @@ def agregados_cmd(
 
 @app.command("validar")
 def validar_cmd() -> None:
-    """Roda validação pós-carga (somente leitura dos checks)."""
-    with connect(DB_PATH, read_only=False) as con:
-        result = validar_base(con, persist=True)
+    """Roda validação pós-carga (persiste em `_validacao` se possível)."""
+    result = None
+    try:
+        with connect(DB_PATH, read_only=False) as con:
+            result = validar_base(con, persist=True)
+    except Exception as e:
+        msg = str(e).lower()
+        if "lock" in msg or "conflict" in msg or "read-only" in msg:
+            typer.secho(
+                f"Aviso: não foi possível gravar (_validacao): {e}\n"
+                "Rodando validação em modo somente leitura…",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+            with connect(DB_PATH, read_only=True) as con:
+                result = validar_base(con, persist=False)
+        else:
+            raise
+    assert result is not None
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     if not result["ok"]:
         raise typer.Exit(code=1)
+
+
+@app.command("upgrade")
+def upgrade_cmd(
+    cnae_bridge: bool = typer.Option(True, "--cnae-bridge/--no-cnae-bridge"),
+    views: bool = typer.Option(True, "--views/--no-views"),
+    fts: bool = typer.Option(True, "--fts/--no-fts"),
+    validar: bool = typer.Option(True, "--validar/--no-validar"),
+) -> None:
+    """Aplica artefatos v0.5+ numa base já carregada (sem reimportar CSVs)."""
+    from dockdb_cnpj.load import upgrade_base
+
+    try:
+        with connect(DB_PATH, read_only=False) as con:
+            result = upgrade_base(
+                con,
+                build_cnae_bridge=cnae_bridge,
+                build_mvs=views,
+                build_fts=fts,
+                run_validate=validar,
+            )
+    except Exception as e:
+        msg = str(e).lower()
+        if "lock" in msg or "conflict" in msg:
+            typer.secho(
+                "Não foi possível abrir a base em modo escrita (lock).\n"
+                "Feche Streamlit/API/outros processos que usem o DuckDB e tente de novo.\n"
+                f"Detalhe: {e}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=2) from e
+        raise
+    typer.echo(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
 
 @app.command("sql")

@@ -5,6 +5,18 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
+## [0.5.1] — 2026-09-25
+
+### Fixed
+
+- `validar` faz fallback para somente leitura quando a base está com lock de escrita
+- `mv_*` passam a ser **views** (não tabelas) — evita duplicar dezenas de GB em disco
+- Mensagem clara no `upgrade` quando há conflito de lock
+
+### Added
+
+- CLI `upgrade` — aplica ponte CNAE / views / FTS / validação em base já carregada
+
 ## [0.5.0] — 2026-09-25
 
 ### Added
@@ -66,6 +78,7 @@ Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - README com crédito ao [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - `TODO.md` com autenticação da API pendente
 
+[0.5.1]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.2.0...v0.3.0

@@ -101,4 +101,16 @@ def test_materialized_views(mini_db: Path) -> None:
     assert n == 3
     n_m = con.execute("SELECT count(*) FROM mv_matriz").fetchone()[0]
     assert n_m == 2
+    n_mei = con.execute("SELECT count(*) FROM mv_mei").fetchone()[0]
+    assert n_mei >= 1
+    con.close()
+
+
+def test_upgrade_idempotent(mini_db: Path) -> None:
+    from dockdb_cnpj.load import upgrade_base
+
+    con = connect(mini_db, read_only=False)
+    out = upgrade_base(con, build_cnae_bridge=True, build_mvs=True, build_fts=True)
+    assert out.get("estabelecimento_cnae")
+    assert out.get("views")
     con.close()
