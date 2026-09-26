@@ -378,11 +378,16 @@ def buscar_empresas(
         fuzzy=fuzzy,
     )
     if use_fts and q:
-        clauses.append(
-            "(fts_main_empresas.match_bm25(e.cnpj_basico, ?) IS NOT NULL "
-            "OR est.nome_fantasia ILIKE ?)"
-        )
-        params.extend([q, f"%{q}%"])
+        # BM25: exige score e ordena — sem ORDER BY o LIMIT pega matches fracos (ex.: só "DO")
+        clauses.append("fts_main_empresas.match_bm25(e.cnpj_basico, ?) IS NOT NULL")
+        params.append(q)
+        fts_score_select = "fts_main_empresas.match_bm25(e.cnpj_basico, ?) AS _fts_score,"
+        fts_score_params: list[Any] = [q]
+        order_by = "ORDER BY _fts_score DESC NULLS LAST"
+    else:
+        fts_score_select = ""
+        fts_score_params = []
+        order_by = ""
 
     simples_join = (
         "LEFT JOIN simples si ON si.cnpj_basico = est.cnpj_basico" if need_simples else ""
@@ -400,6 +405,7 @@ def buscar_empresas(
             c.descricao AS cnae_descricao,
             est.cnae_fiscal_secundaria,
             {cnae_origem_expr},
+            {fts_score_select}
             est.situacao_cadastral,
             est.matriz_filial,
             e.porte_empresa,
@@ -411,9 +417,11 @@ def buscar_empresas(
         LEFT JOIN cnae c ON c.codigo = est.cnae_fiscal
         {simples_join}
         {where}
+        {order_by}
         LIMIT {limit}
     """
-    return fetch_dicts(con, sql, cnae_origem_params + params)
+    # Ordem dos ?: SELECT (cnae_origem + fts_score) depois WHERE
+    return fetch_dicts(con, sql, cnae_origem_params + fts_score_params + params)
 
 
 def buscar_socios(

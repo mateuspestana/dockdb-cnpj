@@ -114,3 +114,46 @@ def test_upgrade_idempotent(mini_db: Path) -> None:
     assert out.get("estabelecimento_cnae")
     assert out.get("views")
     con.close()
+
+
+def test_resume_after_socios_processed(tmp_path: Path) -> None:
+    """Resume do pós-processamento quando socios_original já foi dropado."""
+    from dockdb_cnpj.load import _save_checkpoint, load_duckdb
+
+    fixture = Path(__file__).parent / "fixtures" / "mini"
+    db = tmp_path / "resume.duckdb"
+    load_duckdb(
+        zip_dir=tmp_path,
+        csv_dir=fixture,
+        db_path=db,
+        extract=False,
+        resume=False,
+        build_fts=False,
+    )
+    _save_checkpoint(
+        db,
+        {
+            "completed": [
+                "codigos",
+                "empresas",
+                "estabelecimento",
+                "socios_original",
+                "simples",
+            ],
+            "files_done": {},
+            "ano_mes": "202609",
+        },
+    )
+    load_duckdb(
+        zip_dir=tmp_path,
+        csv_dir=fixture,
+        db_path=db,
+        extract=False,
+        resume=True,
+        build_fts=False,
+    )
+    con = connect(db, read_only=True)
+    assert con.execute("SELECT count(*) FROM socios").fetchone()[0] == 2
+    assert con.execute("SELECT count(*) FROM estabelecimento_cnae").fetchone()[0] >= 3
+    con.close()
+

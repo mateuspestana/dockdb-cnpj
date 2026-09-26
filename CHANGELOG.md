@@ -5,6 +5,17 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
+## [0.5.2] — 2026-09-26
+
+### Fixed
+
+- Resume do pós-processamento quando `socios_original` já foi dropado (não quebra mais o `--resume`)
+- Busca FTS ordena por BM25 (`ORDER BY _fts_score DESC`) — evita resultados irrelevantes no `LIMIT`
+
+### Added
+
+- Teste de integração cobrindo resume após sócios processados
+
 ## [0.5.1] — 2026-09-25
 
 ### Fixed
@@ -78,6 +89,7 @@ Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - README com crédito ao [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - `TODO.md` com autenticação da API pendente
 
+[0.5.2]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.3.0...v0.4.0

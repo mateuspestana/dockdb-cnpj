@@ -259,7 +259,7 @@ def _load_glob(
 
 
 def _build_estabelecimento_cnae(con: duckdb.DuckDBPyConnection) -> None:
-    print("  ponte estabelecimento_cnae …")
+    print("  ponte estabelecimento_cnae …", flush=True)
     con.execute("DROP TABLE IF EXISTS estabelecimento_cnae")
     con.execute(
         """
@@ -288,7 +288,7 @@ def _build_estabelecimento_cnae(con: duckdb.DuckDBPyConnection) -> None:
 
 def _build_materialized_views(con: duckdb.DuckDBPyConnection) -> None:
     """Cria views (não cópias físicas) — evita duplicar dezenas de GB em disco."""
-    print("  views (ativos / matriz / mei) …")
+    print("  views (ativos / matriz / mei) …", flush=True)
     con.execute("DROP VIEW IF EXISTS mv_estabelecimento_ativo")
     con.execute("DROP TABLE IF EXISTS mv_estabelecimento_ativo")
     con.execute(
@@ -351,7 +351,7 @@ def upgrade_base(
 
 
 def _build_fts(con: duckdb.DuckDBPyConnection) -> bool:
-    print("  índice FTS (razão social) …")
+    print("  índice FTS (razão social) …", flush=True)
     try:
         try:
             con.execute("LOAD fts")
@@ -416,65 +416,87 @@ def _post_process(
         """
     )
 
-    con.execute("DROP TABLE IF EXISTS socios")
-    # Colunas explícitas (evita drift de schema com ts.*)
-    socios_cols = """
-        te.cnpj AS cnpj,
-        ts.cnpj_basico,
-        ts.identificador_de_socio,
-        ts.nome_socio,
-        ts.cnpj_cpf_socio,
-        ts.qualificacao_socio,
-        ts.data_entrada_sociedade,
-        ts.pais,
-        ts.representante_legal,
-        ts.nome_representante,
-        ts.qualificacao_representante_legal,
-        ts.faixa_etaria
-    """
-    if ano_mes >= "202608":
+    has_socios_original = (
         con.execute(
-            f"""
-            CREATE TABLE socios AS
-            SELECT {socios_cols}
-            FROM socios_original ts
-            LEFT JOIN cnpj_base2matriz te ON te.cnpj_basico = ts.cnpj_basico
-            WHERE ts.identificador_de_socio <> '1'
-            """
-        )
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='main' AND table_name='socios_original' LIMIT 1"
+        ).fetchone()
+        is not None
+    )
+    has_socios = (
         con.execute(
-            """
-            INSERT INTO socios
-            SELECT
-                te.cnpj AS cnpj,
-                ts.cnpj_basico,
-                ts.identificador_de_socio,
-                ts.nome_socio,
-                tes.cnpj AS cnpj_cpf_socio,
-                ts.qualificacao_socio,
-                ts.data_entrada_sociedade,
-                ts.pais,
-                ts.representante_legal,
-                ts.nome_representante,
-                ts.qualificacao_representante_legal,
-                ts.faixa_etaria
-            FROM socios_original ts
-            LEFT JOIN cnpj_base2matriz te ON te.cnpj_basico = ts.cnpj_basico
-            LEFT JOIN cnpj_base2matriz tes ON tes.cnpj_basico = ts.cnpj_cpf_socio
-            WHERE ts.identificador_de_socio = '1'
-            """
-        )
-    else:
-        con.execute(
-            f"""
-            CREATE TABLE socios AS
-            SELECT {socios_cols}
-            FROM socios_original ts
-            LEFT JOIN cnpj_base2matriz te ON te.cnpj_basico = ts.cnpj_basico
-            """
-        )
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='main' AND table_name='socios' LIMIT 1"
+        ).fetchone()
+        is not None
+    )
 
-    con.execute("DROP TABLE IF EXISTS socios_original")
+    if has_socios_original:
+        con.execute("DROP TABLE IF EXISTS socios")
+        # Colunas explícitas (evita drift de schema com ts.*)
+        socios_cols = """
+            te.cnpj AS cnpj,
+            ts.cnpj_basico,
+            ts.identificador_de_socio,
+            ts.nome_socio,
+            ts.cnpj_cpf_socio,
+            ts.qualificacao_socio,
+            ts.data_entrada_sociedade,
+            ts.pais,
+            ts.representante_legal,
+            ts.nome_representante,
+            ts.qualificacao_representante_legal,
+            ts.faixa_etaria
+        """
+        if ano_mes >= "202608":
+            con.execute(
+                f"""
+                CREATE TABLE socios AS
+                SELECT {socios_cols}
+                FROM socios_original ts
+                LEFT JOIN cnpj_base2matriz te ON te.cnpj_basico = ts.cnpj_basico
+                WHERE ts.identificador_de_socio <> '1'
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO socios
+                SELECT
+                    te.cnpj AS cnpj,
+                    ts.cnpj_basico,
+                    ts.identificador_de_socio,
+                    ts.nome_socio,
+                    tes.cnpj AS cnpj_cpf_socio,
+                    ts.qualificacao_socio,
+                    ts.data_entrada_sociedade,
+                    ts.pais,
+                    ts.representante_legal,
+                    ts.nome_representante,
+                    ts.qualificacao_representante_legal,
+                    ts.faixa_etaria
+                FROM socios_original ts
+                LEFT JOIN cnpj_base2matriz te ON te.cnpj_basico = ts.cnpj_basico
+                LEFT JOIN cnpj_base2matriz tes ON tes.cnpj_basico = ts.cnpj_cpf_socio
+                WHERE ts.identificador_de_socio = '1'
+                """
+            )
+        else:
+            con.execute(
+                f"""
+                CREATE TABLE socios AS
+                SELECT {socios_cols}
+                FROM socios_original ts
+                LEFT JOIN cnpj_base2matriz te ON te.cnpj_basico = ts.cnpj_basico
+                """
+            )
+        con.execute("DROP TABLE IF EXISTS socios_original")
+    elif has_socios:
+        print("  [skip] socios (já processados; socios_original ausente)")
+    else:
+        raise RuntimeError(
+            "Nem socios_original nem socios encontrados — não é possível "
+            "retomar o pós-processamento. Rode a carga sem --resume."
+        )
 
     if build_cnae_bridge:
         _build_estabelecimento_cnae(con)

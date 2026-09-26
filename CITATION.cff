@@ -18,8 +18,8 @@ keywords:
   - dados abertos
   - Brasil
 license: MIT
-version: "0.5.1"
-date-released: "2026-09-25"
+version: "0.5.2"
+date-released: "2026-09-26"
 doi: "10.5281/zenodo.22940888"
 identifiers:
   - type: doi
@@ -32,6 +32,6 @@ preferred-citation:
       email: matheus.pestana@fgv.br
   title: "DockDB-CNPJ"
   year: 2026
-  version: "0.5.1"
+  version: "0.5.2"
   doi: "10.5281/zenodo.22940888"
   url: "https://doi.org/10.5281/zenodo.22940888"
