@@ -7,6 +7,7 @@ Author: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
@@ -30,10 +31,15 @@ def connect(db_path: Path | str | None = None, *, read_only: bool = False) -> du
     return duckdb.connect(str(path), read_only=read_only)
 
 
+def scalar(con: duckdb.DuckDBPyConnection, sql: str, params: list | tuple | None = None) -> Any:
+    row = con.execute(sql, params).fetchone() if params else con.execute(sql).fetchone()
+    return row[0] if row else None
+
+
 def fetch_dicts(con: duckdb.DuckDBPyConnection, sql: str, params: list | tuple | None = None) -> list[dict]:
     if params:
         cur = con.execute(sql, params)
     else:
         cur = con.execute(sql)
     cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, row)) for row in cur.fetchall()]
+    return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]

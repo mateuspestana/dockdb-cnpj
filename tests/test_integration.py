@@ -42,16 +42,16 @@ def mini_db(tmp_path_factory) -> Path:
 
 def test_load_counts(mini_db: Path) -> None:
     con = connect(mini_db, read_only=True)
-    assert con.execute("SELECT count(*) FROM empresas").fetchone()[0] == 2
-    assert con.execute("SELECT count(*) FROM estabelecimento").fetchone()[0] == 3
-    assert con.execute("SELECT count(*) FROM socios").fetchone()[0] == 2
+    assert con.execute("SELECT count(*) FROM empresas").fetchone()[0] == 3
+    assert con.execute("SELECT count(*) FROM estabelecimento").fetchone()[0] == 5
+    assert con.execute("SELECT count(*) FROM socios").fetchone()[0] == 3
     assert con.execute("SELECT count(*) FROM estabelecimento_cnae").fetchone()[0] >= 3
     con.close()
 
 
 def test_consulta_decode(mini_db: Path) -> None:
     con = connect(mini_db, read_only=True)
-    data = consulta_cnpj(con, "12345678000191")
+    data = consulta_cnpj(con, "12345678000195")
     assert data["empresas"]
     assert data["empresas"][0].get("natureza_juridica_desc")
     assert data["estabelecimentos"][0].get("cnae_descricao")
@@ -98,9 +98,9 @@ def test_validacao(mini_db: Path) -> None:
 def test_materialized_views(mini_db: Path) -> None:
     con = connect(mini_db, read_only=True)
     n = con.execute("SELECT count(*) FROM mv_estabelecimento_ativo").fetchone()[0]
-    assert n == 3
+    assert n == 4
     n_m = con.execute("SELECT count(*) FROM mv_matriz").fetchone()[0]
-    assert n_m == 2
+    assert n_m == 3
     n_mei = con.execute("SELECT count(*) FROM mv_mei").fetchone()[0]
     assert n_mei >= 1
     con.close()
@@ -153,7 +153,59 @@ def test_resume_after_socios_processed(tmp_path: Path) -> None:
         build_fts=False,
     )
     con = connect(db, read_only=True)
-    assert con.execute("SELECT count(*) FROM socios").fetchone()[0] == 2
+    assert con.execute("SELECT count(*) FROM socios").fetchone()[0] == 3
     assert con.execute("SELECT count(*) FROM estabelecimento_cnae").fetchone()[0] >= 3
     con.close()
 
+
+
+def test_consulta_alfanumerica(mini_db: Path) -> None:
+    con = connect(mini_db, read_only=True)
+    data = consulta_cnpj(con, "12.abc.345/01de-35")
+    assert data["cnpj_consultado"] == "12ABC34501DE35"
+    assert data["cnpj_formatado"] == "12.ABC.345/01DE-35"
+    assert data["alfanumerico"] is True
+    assert data["dv_valido"] is True
+    assert data["empresas"][0]["razao_social"] == "EMPRESA ALFA LTDA"
+    est = data["estabelecimentos"][0]
+    assert est["municipio_ibge"] == "3304557"
+    basico = consulta_cnpj(con, "12ABC345")
+    assert len(basico["estabelecimentos"]) == 1
+    con.close()
+
+
+def test_consulta_dv_invalido(mini_db: Path) -> None:
+    con = connect(mini_db, read_only=True)
+    data = consulta_cnpj(con, "87654321000200")
+    assert data["dv_valido"] is False
+    assert data["dv_esperado"] == "79"
+    assert data["estabelecimentos"]  # existe na base mesmo com DV errado
+    con.close()
+
+
+def test_socio_pj_alfanumerico(mini_db: Path) -> None:
+    con = connect(mini_db, read_only=True)
+    rows = buscar_socios(con, documento="12.ABC.345/01DE-35", limit=10)
+    assert rows
+    assert rows[0]["razao_social"] == "OUTRA EMPRESA SA"
+    con.close()
+
+
+def test_busca_municipio_ibge(mini_db: Path) -> None:
+    con = connect(mini_db, read_only=True)
+    rows = buscar_empresas(con, municipio_ibge="3304557", limit=10)
+    assert {r["cnpj"] for r in rows} == {"87654321000200", "12ABC34501DE35"}
+    assert all(r["municipio_ibge"] == "3304557" for r in rows)
+    con.close()
+
+
+def test_validacao_dv_e_ibge(mini_db: Path) -> None:
+    con = connect(mini_db, read_only=True)
+    result = validar_base(con, persist=False)
+    checks = {c["check"]: c for c in result["checks"]}
+    assert result["ok"]  # avisos não derrubam ok
+    assert checks["cnpj_dv"]["nivel"] == "aviso"
+    assert checks["cnpj_dv"]["valor"] == 1
+    assert checks["cnpj_alfanumerico"]["valor"] == 1
+    assert checks["municipio_ibge_cobertura"]["ok"]
+    con.close()

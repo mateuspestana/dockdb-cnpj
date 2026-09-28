@@ -4,6 +4,7 @@
 [![versão](https://img.shields.io/github/v/release/mateuspestana/dockdb-cnpj?label=versão)](https://github.com/mateuspestana/dockdb-cnpj/releases)
 [![licença](https://img.shields.io/github/license/mateuspestana/dockdb-cnpj?label=licença)](LICENSE)
 [![atualizado](https://img.shields.io/github/last-commit/mateuspestana/dockdb-cnpj?label=atualizado)](https://github.com/mateuspestana/dockdb-cnpj/commits/main)
+[![CI](https://github.com/mateuspestana/dockdb-cnpj/actions/workflows/ci.yml/badge.svg)](https://github.com/mateuspestana/dockdb-cnpj/actions/workflows/ci.yml)
 
 Base pública de CNPJ da Receita Federal em **[DuckDB](https://duckdb.org/)**, com download, carga, sync, CLI, Streamlit e API em Docker.
 
@@ -61,7 +62,10 @@ python scripts/load_duckdb.py
 # 3) Consultar
 python cli/consulta.py info
 python cli/consulta.py cnpj 00000000000191
+python cli/consulta.py cnpj 12.ABC.345/01DE-35          # alfanumérico
+python cli/consulta.py dv 12ABC34501DE                  # calcula/valida DV (sem base)
 python cli/consulta.py buscar --uf SP --cnae 6201501 --situacao 02 --mei --limit 20
+python cli/consulta.py buscar --municipio-ibge 3304557 --cnae 6201501 --limit 20
 python cli/consulta.py buscar --uf SP --cnae 6201501 --export out.csv
 python cli/consulta.py socio --nome "SILVA" --limit 20
 python cli/consulta.py agregados uf
@@ -69,10 +73,26 @@ python cli/consulta.py validar
 python cli/consulta.py sql "SELECT uf, count(*) n FROM estabelecimento GROUP BY 1 ORDER BY 2 DESC"
 
 streamlit run streamlit_app/app.py
-# testes: pytest
 ```
 
-> **v0.5:** após atualizar o código, **recarregue** a base (`load_duckdb.py`) **ou** rode `python cli/consulta.py upgrade` (exige lock exclusivo de escrita) para gerar `estabelecimento_cnae`, views e FTS.
+> **Atualizando o código numa base já carregada:** rode `python cli/consulta.py upgrade` (exige lock exclusivo de escrita) em vez de recarregar tudo. Se a base já está na v0.5, `upgrade --no-cnae-bridge --no-views --no-fts` basta para criar as tabelas novas (leva segundos).
+
+### CNPJ alfanumérico
+
+Desde jul/2026 a Receita emite CNPJ com letras nas 12 primeiras posições (IN RFB nº 2.229/2024); os 2 dígitos verificadores continuam numéricos. Todas as consultas (CLI, API, Streamlit) aceitam os dois formatos, com ou sem pontuação e em minúsculas (`12.abc.345/01de-35` → `12ABC34501DE35`). A consulta informa `dv_valido` e, se errado, `dv_esperado`. O `validar` conta CNPJs com DV inválido e quantos são alfanuméricos.
+
+### Código IBGE do município
+
+O campo `estabelecimento.municipio` usa o código **TOM/SIAFI da Receita** (4 dígitos — Rio = `6001`), não o do IBGE (7 dígitos — Rio = `3304557`). A tabela `municipio_ibge` faz o de-para, com UF, região e centroide, e permite cruzar com Censo, RAIS, TSE, DATASUS etc.:
+
+```sql
+SELECT mi.codigo_ibge, mi.nome, count(*) AS ativas
+FROM mv_estabelecimento_ativo e
+JOIN municipio_ibge mi ON mi.codigo_rf = e.municipio
+GROUP BY 1, 2 ORDER BY ativas DESC;
+```
+
+A busca e a consulta devolvem `municipio_ibge`, e `--municipio-ibge` / `?municipio_ibge=` filtra por ele. O CSV é versionado em `src/dockdb_cnpj/data/` (fonte: [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros)); para regerar, `python scripts/build_reference_data.py`.
 
 ### Sync
 
@@ -105,8 +125,9 @@ docker compose up --build
 
 | Método | Rota |
 |--------|------|
-| GET | `/health`, `/referencia`, `/cnpj/{cnpj}` |
-| GET | `/empresas?uf=&cnae=&mei=&simples=&porte=&municipio_nome=&q=&fuzzy=&limit=` |
+| GET | `/health`, `/referencia`, `/cnpj/{cnpj}` (aceita alfanumérico) |
+| GET | `/dv/{cnpj}` — valida (14) ou calcula (12) o dígito verificador |
+| GET | `/empresas?uf=&cnae=&mei=&simples=&porte=&municipio_nome=&municipio_ibge=&q=&fuzzy=&limit=` |
 | GET | `/socios?nome=&documento=&limit=` |
 | GET | `/agregados/{uf\|cnae\|situacao}` |
 | GET | `/export?formato=csv\|parquet&…` (mesmos filtros de `/empresas`) |
@@ -127,16 +148,27 @@ uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 dockdb-cnpj/
   src/dockdb_cnpj/     # núcleo
+  src/dockdb_cnpj/data # tabelas auxiliares versionadas (IBGE)
   scripts/             # download, load, sync, cleanup_raw
   cli/                 # CLI
   streamlit_app/       # UI (+ Analytics)
   api/                 # FastAPI
   tests/               # integração (fixture mini)
   exemplos/            # SQL + notebook
+  .github/workflows/   # CI (ruff, mypy, pytest)
   data/cnpj.duckdb     # gerado localmente (não versionado)
 ```
 
 Variáveis: [.env.example](.env.example). Se o WebDAV da Receita mudar o token, ajuste `CNPJ_SHARE_TOKEN`.
+
+## Desenvolvimento
+
+```bash
+pip install -e ".[dev]"
+ruff check . && mypy && pytest
+```
+
+A CI roda os mesmos três passos em cada push e PR (Python 3.10, 3.12 e 3.13), usando a fixture mínima em `tests/fixtures/mini/` — não precisa da base real.
 
 ## Exemplos SQL
 
@@ -147,6 +179,7 @@ Variáveis: [.env.example](.env.example). Se o WebDAV da Receita mudar o token, 
 - Dados: [CNPJ — Dados Abertos](https://dados.gov.br/dados/conjuntos-dados/cadastro-nacional-da-pessoa-juridica---cnpj) (Receita Federal)
 - Referência de fluxo e layout: [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - Listagem WebDAV: [cnpj-data-pipeline](https://github.com/caiopizzol/cnpj-data-pipeline)
+- Municípios (código SIAFI × IBGE e centroides): [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros) (MIT)
 
 ## Autor
 

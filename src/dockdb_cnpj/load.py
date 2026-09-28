@@ -5,6 +5,7 @@ Layout alinhado ao projeto cnpj-sqlite (Receita Federal pós-2021),
 incluindo correção de sócios a partir de ago/2026 (radical → CNPJ matriz).
 
 v0.5: carga resumível, ponte estabelecimento_cnae, views materializadas, FTS.
+v0.6: tabelas auxiliares versionadas (municipio_ibge).
 
 Author: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 """
@@ -19,7 +20,8 @@ from pathlib import Path
 import duckdb
 
 from dockdb_cnpj.config import CSV_DIR, DATA_DIR, DB_PATH, ZIP_DIR, ensure_dirs
-from dockdb_cnpj.db import connect
+from dockdb_cnpj.db import connect, scalar
+from dockdb_cnpj.referencias import build_referencias
 from dockdb_cnpj.validate import validar_base
 
 __author__ = "Matheus Cavalcanti Pestana"
@@ -324,10 +326,13 @@ def upgrade_base(
     build_cnae_bridge: bool = True,
     build_mvs: bool = True,
     build_fts: bool = True,
+    build_refs: bool = True,
     run_validate: bool = True,
 ) -> dict:
-    """Atualiza base já carregada com artefatos v0.5 (sem recarregar CSVs)."""
+    """Atualiza base já carregada com artefatos v0.5+ (sem recarregar CSVs)."""
     out: dict = {}
+    if build_refs:
+        out["referencias"] = build_referencias(con)
     if build_cnae_bridge:
         _build_estabelecimento_cnae(con)
         out["estabelecimento_cnae"] = True
@@ -380,6 +385,7 @@ def _post_process(
     build_cnae_bridge: bool = True,
     build_mvs: bool = True,
     build_fts: bool = True,
+    build_refs: bool = True,
     run_validate: bool = True,
 ) -> None:
     print("Pós-processamento …")
@@ -502,6 +508,8 @@ def _post_process(
         _build_estabelecimento_cnae(con)
     if build_mvs:
         _build_materialized_views(con)
+    if build_refs:
+        build_referencias(con)
     fts_ok = _build_fts(con) if build_fts else False
 
     for sql in [
@@ -522,7 +530,7 @@ def _post_process(
         except duckdb.Error as e:
             print(f"  índice (aviso): {e}")
 
-    qtde = con.execute("SELECT count(*) FROM estabelecimento").fetchone()[0]
+    qtde = scalar(con, "SELECT count(*) FROM estabelecimento")
     con.execute("DROP TABLE IF EXISTS _referencia")
     con.execute(
         """
@@ -561,6 +569,7 @@ def load_duckdb(
     build_cnae_bridge: bool = True,
     build_mvs: bool = True,
     build_fts: bool = True,
+    build_refs: bool = True,
     run_validate: bool = True,
 ) -> Path:
     """Extrai ZIPs (opcional) e cria/substitui a base DuckDB.
@@ -736,15 +745,16 @@ def load_duckdb(
                 build_cnae_bridge=build_cnae_bridge,
                 build_mvs=build_mvs,
                 build_fts=build_fts,
+                build_refs=build_refs,
                 run_validate=run_validate,
             )
             mark_step("post_process")
         else:
             print("  [skip] post_process")
 
-        n_emp = con.execute("SELECT count(*) FROM empresas").fetchone()[0]
-        n_est = con.execute("SELECT count(*) FROM estabelecimento").fetchone()[0]
-        n_soc = con.execute("SELECT count(*) FROM socios").fetchone()[0]
+        n_emp = scalar(con, "SELECT count(*) FROM empresas")
+        n_est = scalar(con, "SELECT count(*) FROM estabelecimento")
+        n_soc = scalar(con, "SELECT count(*) FROM socios")
         print(f"Empresas: {n_emp:,}")
         print(f"Estabelecimentos: {n_est:,}")
         print(f"Sócios: {n_soc:,}")

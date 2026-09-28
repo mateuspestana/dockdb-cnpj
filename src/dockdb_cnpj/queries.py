@@ -13,6 +13,13 @@ from typing import Any, Literal
 
 import duckdb
 
+from dockdb_cnpj.cnpj import (  # noqa: F401 — dv_valido/normalize_cnpj reexportados
+    calcular_dv,
+    dv_valido,
+    formatar,
+    limpar,
+    normalize_cnpj,
+)
 from dockdb_cnpj.config import DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT
 from dockdb_cnpj.db import fetch_dicts
 from dockdb_cnpj.sql_guard import assert_safe_select
@@ -38,13 +45,6 @@ PORTE_LABEL = {
 }
 
 MATRIZ_FILIAL_LABEL = {"1": "Matriz", "2": "Filial"}
-
-
-def normalize_cnpj(value: str) -> str:
-    digits = re.sub(r"\D", "", value or "")
-    if len(digits) not in (8, 14):
-        raise ValueError("CNPJ deve ter 8 (básico) ou 14 dígitos.")
-    return digits
 
 
 def normalize_digits(value: str | None) -> str:
@@ -85,6 +85,7 @@ def consulta_cnpj(con: duckdb.DuckDBPyConnection, cnpj: str) -> dict[str, Any]:
     """Consulta completa com descrições de códigos decodificados."""
     cnpj = normalize_cnpj(cnpj)
     basico = cnpj[:8] if len(cnpj) == 14 else cnpj
+    has_ibge = _table_exists(con, "municipio_ibge")
 
     empresas = fetch_dicts(
         con,
@@ -104,19 +105,25 @@ def consulta_cnpj(con: duckdb.DuckDBPyConnection, cnpj: str) -> dict[str, Any]:
         porte = emp.get("porte_empresa")
         emp["porte_empresa_desc"] = PORTE_LABEL.get(str(porte or ""), porte)
 
-    estab_sql = """
+    ibge_select = "mi.codigo_ibge AS municipio_ibge," if has_ibge else "NULL AS municipio_ibge,"
+    ibge_join = (
+        "LEFT JOIN municipio_ibge mi ON mi.codigo_rf = est.municipio" if has_ibge else ""
+    )
+    estab_sql = f"""
         SELECT est.*,
                c.descricao AS cnae_descricao,
                m.descricao AS municipio_nome,
+               {ibge_select}
                mot.descricao AS motivo_descricao,
                p.descricao AS pais_nome
         FROM estabelecimento est
         LEFT JOIN cnae c ON c.codigo = est.cnae_fiscal
         LEFT JOIN municipio m ON m.codigo = est.municipio
+        {ibge_join}
         LEFT JOIN motivo mot ON mot.codigo = est.motivo_situacao_cadastral
         LEFT JOIN pais p ON p.codigo = est.pais
-        WHERE {where}
-        {order}
+        WHERE {{where}}
+        {{order}}
     """
 
     if len(cnpj) == 14:
@@ -177,13 +184,36 @@ def consulta_cnpj(con: duckdb.DuckDBPyConnection, cnpj: str) -> dict[str, Any]:
         [basico],
     )
 
-    return {
+    resultado: dict[str, Any] = {
         "cnpj_consultado": cnpj,
+        "cnpj_formatado": formatar(cnpj),
+        "alfanumerico": not cnpj.isdigit(),
+    }
+    if len(cnpj) == 14:
+        esperado = calcular_dv(cnpj[:12])
+        resultado["dv_valido"] = esperado == cnpj[12:]
+        if esperado != cnpj[12:]:
+            resultado["dv_esperado"] = esperado
+    return {
+        **resultado,
         "empresas": empresas,
         "estabelecimentos": estabelecimentos,
         "socios": socios,
         "simples": simples,
     }
+
+
+def _municipio_ibge_para_rf(con: duckdb.DuckDBPyConnection, codigo_ibge: str) -> list[str]:
+    if not _table_exists(con, "municipio_ibge"):
+        raise ValueError(
+            "Filtro por código IBGE exige a tabela municipio_ibge — rode `dockdb-cnpj upgrade`."
+        )
+    rows = fetch_dicts(
+        con,
+        "SELECT codigo_rf FROM municipio_ibge WHERE codigo_ibge = ?",
+        [normalize_digits(codigo_ibge)],
+    )
+    return [r["codigo_rf"] for r in rows]
 
 
 def _build_busca_filters(
@@ -193,6 +223,7 @@ def _build_busca_filters(
     incluir_cnae_secundario: bool,
     municipio: str | None,
     municipio_nome: str | None,
+    municipio_rf: list[str],
     q: str | None,
     situacao: str | None,
     porte: str | None,
@@ -250,6 +281,9 @@ def _build_busca_filters(
     if municipio_nome:
         clauses.append("m.descricao ILIKE ?")
         params.append(f"%{municipio_nome}%")
+    if municipio_rf:
+        clauses.append(f"est.municipio IN ({', '.join('?' for _ in municipio_rf)})")
+        params.extend(municipio_rf)
 
     if situacao:
         clauses.append("est.situacao_cadastral = ?")
@@ -340,6 +374,7 @@ def buscar_empresas(
     incluir_cnae_secundario: bool = True,
     municipio: str | None = None,
     municipio_nome: str | None = None,
+    municipio_ibge: str | None = None,
     q: str | None = None,
     situacao: str | None = None,
     porte: str | None = None,
@@ -357,6 +392,10 @@ def buscar_empresas(
     limit = max(1, min(int(limit), MAX_QUERY_LIMIT))
     use_bridge = _table_exists(con, "estabelecimento_cnae")
     use_fts = bool(q) and not fuzzy and _fts_ready(con)
+    has_ibge = _table_exists(con, "municipio_ibge")
+    municipio_rf = _municipio_ibge_para_rf(con, municipio_ibge) if municipio_ibge else []
+    if municipio_ibge and not municipio_rf:
+        return []
 
     clauses, params, cnae_origem_expr, cnae_origem_params, need_simples = _build_busca_filters(
         uf=uf,
@@ -364,6 +403,7 @@ def buscar_empresas(
         incluir_cnae_secundario=incluir_cnae_secundario,
         municipio=municipio,
         municipio_nome=municipio_nome,
+        municipio_rf=municipio_rf,
         q=None if use_fts else q,
         situacao=situacao,
         porte=porte,
@@ -392,6 +432,10 @@ def buscar_empresas(
     simples_join = (
         "LEFT JOIN simples si ON si.cnpj_basico = est.cnpj_basico" if need_simples else ""
     )
+    ibge_select = "mi.codigo_ibge AS municipio_ibge," if has_ibge else "NULL AS municipio_ibge,"
+    ibge_join = (
+        "LEFT JOIN municipio_ibge mi ON mi.codigo_rf = est.municipio" if has_ibge else ""
+    )
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
         SELECT
@@ -401,6 +445,7 @@ def buscar_empresas(
             est.uf,
             est.municipio,
             m.descricao AS municipio_nome,
+            {ibge_select}
             est.cnae_fiscal,
             c.descricao AS cnae_descricao,
             est.cnae_fiscal_secundaria,
@@ -414,6 +459,7 @@ def buscar_empresas(
         FROM estabelecimento est
         JOIN empresas e ON e.cnpj_basico = est.cnpj_basico
         LEFT JOIN municipio m ON m.codigo = est.municipio
+        {ibge_join}
         LEFT JOIN cnae c ON c.codigo = est.cnae_fiscal
         {simples_join}
         {where}
@@ -431,7 +477,7 @@ def buscar_socios(
     documento: str | None = None,
     limit: int = DEFAULT_QUERY_LIMIT,
 ) -> list[dict]:
-    """Busca sócios por nome e/ou CPF/CNPJ (dígitos)."""
+    """Busca sócios por nome e/ou CPF/CNPJ (aceita CNPJ alfanumérico)."""
     if not nome and not documento:
         raise ValueError("Informe nome e/ou documento do sócio.")
     limit = max(1, min(int(limit), MAX_QUERY_LIMIT))
@@ -441,9 +487,9 @@ def buscar_socios(
         clauses.append("s.nome_socio ILIKE ?")
         params.append(f"%{nome}%")
     if documento:
-        doc = normalize_digits(documento)
+        doc = limpar(documento)
         clauses.append(
-            "(regexp_replace(COALESCE(s.cnpj_cpf_socio, ''), '[^0-9]', '', 'g') = ? "
+            "(regexp_replace(UPPER(COALESCE(s.cnpj_cpf_socio, '')), '[^0-9A-Z]', '', 'g') = ? "
             "OR s.cnpj_cpf_socio ILIKE ?)"
         )
         params.extend([doc, f"%{doc}%"])

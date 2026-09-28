@@ -77,10 +77,17 @@ tab_cnpj, tab_buscar, tab_socio, tab_agg, tab_sql = st.tabs(
 )
 
 with tab_cnpj:
-    cnpj = st.text_input("CNPJ (8 ou 14 dígitos)", placeholder="00000000000191")
+    cnpj = st.text_input(
+        "CNPJ (8 ou 14 posições — aceita alfanumérico)", placeholder="12.ABC.345/01DE-35"
+    )
     if st.button("Consultar CNPJ", type="primary") and cnpj:
         try:
             data = consulta_cnpj(con, cnpj)
+            st.markdown(f"**{data['cnpj_formatado']}**")
+            if data.get("dv_valido") is False:
+                st.warning(
+                    f"Dígito verificador inválido (esperado: {data.get('dv_esperado')})."
+                )
             st.subheader("Empresa(s)")
             st.dataframe(pd.DataFrame(data["empresas"]), use_container_width=True)
             st.subheader("Estabelecimento(s)")
@@ -101,7 +108,8 @@ with tab_buscar:
         cnae = st.text_input("CNAE")
         porte = st.text_input("Porte", placeholder="01")
     with c2:
-        municipio = st.text_input("Município (código ou nome)")
+        municipio = st.text_input("Município (código RF ou nome)")
+        municipio_ibge = st.text_input("Município (código IBGE)", placeholder="3304557")
         situacao = st.text_input("Situação", placeholder="02")
         matriz_filial = st.selectbox("Matriz/Filial", ["", "1", "2"], format_func=lambda x: {"": "(qualquer)", "1": "Matriz", "2": "Filial"}[x])
     with c3:
@@ -117,23 +125,28 @@ with tab_buscar:
     if st.button("Buscar", type="primary"):
         mei = None if mei_opt.startswith("(") else mei_opt == "sim"
         simples = None if simples_opt.startswith("(") else simples_opt == "sim"
-        rows = buscar_empresas(
-            con,
-            uf=uf or None,
-            cnae=cnae or None,
-            incluir_cnae_secundario=incluir_secundario,
-            municipio=municipio or None,
-            q=q or None,
-            fuzzy=fuzzy,
-            situacao=situacao or None,
-            porte=porte or None,
-            matriz_filial=matriz_filial or None,
-            mei=mei,
-            simples=simples,
-            capital_min=capital_min or None,
-            capital_max=capital_max or None,
-            limit=int(limit),
-        )
+        try:
+            rows = buscar_empresas(
+                con,
+                uf=uf or None,
+                cnae=cnae or None,
+                incluir_cnae_secundario=incluir_secundario,
+                municipio=municipio or None,
+                municipio_ibge=municipio_ibge or None,
+                q=q or None,
+                fuzzy=fuzzy,
+                situacao=situacao or None,
+                porte=porte or None,
+                matriz_filial=matriz_filial or None,
+                mei=mei,
+                simples=simples,
+                capital_min=capital_min or None,
+                capital_max=capital_max or None,
+                limit=int(limit),
+            )
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True)
         if not df.empty:

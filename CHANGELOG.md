@@ -5,6 +5,27 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
+## [0.6.0] — 2026-09-27
+
+### Added
+
+- **CNPJ alfanumérico** (IN RFB nº 2.229/2024): consultas, busca de sócio PJ e validação aceitam `[0-9A-Z]` nas 12 primeiras posições. Novo módulo `dockdb_cnpj.cnpj` (`calcular_dv`, `dv_valido`, `normalize_cnpj`, `formatar`, `sql_dv_expr`)
+- Consulta de CNPJ devolve `cnpj_formatado`, `alfanumerico`, `dv_valido` e `dv_esperado`
+- CLI `dv` e rota `GET /dv/{cnpj}` para validar/calcular dígito verificador sem consultar a base
+- Validação: checks `cnpj_formato`, `cnpj_dv`, `cnpj_alfanumerico` e `municipio_ibge_cobertura`; checks agora têm nível `erro` ou `aviso` (só `erro` derruba o `ok`)
+- Tabela `municipio_ibge` (código RF → IBGE, UF, região, centroide), versionada no pacote e criada na carga / no `upgrade --referencias`
+- Coluna `municipio_ibge` na busca e na consulta; filtro `--municipio-ibge` / `?municipio_ibge=` (CLI, API, Streamlit)
+- Script `scripts/build_reference_data.py` para regerar as tabelas auxiliares
+- CI no GitHub Actions: ruff, mypy e pytest (Python 3.10, 3.12, 3.13)
+- Testes unitários de CNPJ e testes da API; fixture com CNPJ alfanumérico, sócio PJ e DV inválido
+
+### Fixed
+
+- API usa um cursor DuckDB por requisição (a conexão compartilhada não é thread-safe)
+- `/export` grava cada requisição num arquivo próprio (antes, requisições simultâneas sobrescreviam `export.csv`)
+- `cnpj` e `buscar` na CLI mostram erro amigável (exit 2) em vez de traceback para entrada inválida
+- `py.typed` declarado no `pyproject.toml` agora existe
+
 ## [0.5.2] — 2026-09-26
 
 ### Fixed
@@ -89,6 +110,7 @@ Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - README com crédito ao [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - `TODO.md` com autenticação da API pendente
 
+[0.6.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.4.0...v0.5.0

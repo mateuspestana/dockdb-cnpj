@@ -13,7 +13,8 @@ from typing import Optional
 import typer
 
 from dockdb_cnpj import __email__, __version__
-from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT
+from dockdb_cnpj.cnpj import calcular_dv, dv_valido, formatar, limpar
+from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT
 from dockdb_cnpj.db import connect
 from dockdb_cnpj.queries import (
     agregados_cnae,
@@ -71,12 +72,46 @@ def info_cmd() -> None:
 
 @app.command("cnpj")
 def cnpj_cmd(
-    cnpj: str = typer.Argument(..., help="CNPJ com 8 ou 14 dígitos."),
+    cnpj: str = typer.Argument(..., help="CNPJ com 8 ou 14 posições (aceita alfanumérico)."),
 ) -> None:
     """Consulta empresa / estabelecimentos / sócios."""
     with _con() as con:
-        data = consulta_cnpj(con, cnpj)
+        try:
+            data = consulta_cnpj(con, cnpj)
+        except ValueError as e:
+            typer.secho(str(e), fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=2) from e
     typer.echo(json.dumps(data, ensure_ascii=False, indent=2, default=str))
+
+
+@app.command("dv")
+def dv_cmd(
+    cnpj: str = typer.Argument(..., help="CNPJ (14 posições) ou base (12) para calcular o DV."),
+) -> None:
+    """Valida o dígito verificador (CNPJ numérico ou alfanumérico). Não usa a base."""
+    c = limpar(cnpj)
+    out: dict[str, str | bool]
+    try:
+        if len(c) == 12:
+            dv = calcular_dv(c)
+            out = {"base": c, "dv": dv, "cnpj": c + dv, "cnpj_formatado": formatar(c + dv)}
+        elif len(c) == 14:
+            esperado = calcular_dv(c[:12])
+            out = {
+                "cnpj": c,
+                "cnpj_formatado": formatar(c),
+                "dv_valido": dv_valido(c),
+                "dv_esperado": esperado,
+                "alfanumerico": not c.isdigit(),
+            }
+        else:
+            raise ValueError("Informe 12 (base) ou 14 posições.")
+    except ValueError as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2) from e
+    typer.echo(json.dumps(out, ensure_ascii=False, indent=2))
+    if len(c) == 14 and not out["dv_valido"]:
+        raise typer.Exit(code=1)
 
 
 @app.command("buscar")
@@ -92,6 +127,9 @@ def buscar_cmd(
         None, help="Código RF ou nome do município"
     ),
     municipio_nome: Optional[str] = typer.Option(None, help="Nome do município"),
+    municipio_ibge: Optional[str] = typer.Option(
+        None, help="Código IBGE do município (7 dígitos)"
+    ),
     q: Optional[str] = typer.Option(None, help="Texto em razão social / fantasia"),
     fuzzy: bool = typer.Option(False, help="Busca fuzzy (Jaro-Winkler) em q"),
     situacao: Optional[str] = typer.Option(None, help="Situação cadastral"),
@@ -118,6 +156,7 @@ def buscar_cmd(
         incluir_cnae_secundario=incluir_secundario,
         municipio=municipio,
         municipio_nome=municipio_nome,
+        municipio_ibge=municipio_ibge,
         q=q,
         fuzzy=fuzzy,
         situacao=situacao,
@@ -132,11 +171,15 @@ def buscar_cmd(
         limit=limit,
     )
     with _con() as con:
-        if export:
-            path = exportar_busca(con, export, formato=formato, **kwargs)  # type: ignore[arg-type]
-            typer.echo(f"Exportado: {path}")
-            return
-        rows = buscar_empresas(con, **kwargs)  # type: ignore[arg-type]
+        try:
+            if export:
+                path = exportar_busca(con, export, formato=formato, **kwargs)  # type: ignore[arg-type]
+                typer.echo(f"Exportado: {path}")
+                return
+            rows = buscar_empresas(con, **kwargs)  # type: ignore[arg-type]
+        except ValueError as e:
+            typer.secho(str(e), fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=2) from e
     typer.echo(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
 
 
@@ -207,6 +250,9 @@ def upgrade_cmd(
     cnae_bridge: bool = typer.Option(True, "--cnae-bridge/--no-cnae-bridge"),
     views: bool = typer.Option(True, "--views/--no-views"),
     fts: bool = typer.Option(True, "--fts/--no-fts"),
+    referencias: bool = typer.Option(
+        True, "--referencias/--no-referencias", help="Tabelas auxiliares (IBGE etc.)"
+    ),
     validar: bool = typer.Option(True, "--validar/--no-validar"),
 ) -> None:
     """Aplica artefatos v0.5+ numa base já carregada (sem reimportar CSVs)."""
@@ -219,6 +265,7 @@ def upgrade_cmd(
                 build_cnae_bridge=cnae_bridge,
                 build_mvs=views,
                 build_fts=fts,
+                build_refs=referencias,
                 run_validate=validar,
             )
     except Exception as e:

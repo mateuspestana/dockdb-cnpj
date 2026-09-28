@@ -59,3 +59,16 @@ SELECT count(*) FROM mv_matriz;
 
 -- Ponte CNAE (v0.5)
 SELECT tipo, count(*) FROM estabelecimento_cnae GROUP BY 1;
+
+-- v0.6: CNPJs alfanuméricos (IN RFB 2.229/2024)
+SELECT cnpj, cnpj_ordem, uf, data_inicio_atividades
+FROM estabelecimento
+WHERE regexp_matches(cnpj, '[A-Z]');
+
+-- v0.6: de-para RF → IBGE (cruzar com Censo, RAIS, TSE…)
+SELECT mi.codigo_ibge, mi.nome, mi.uf, count(*) AS ativas
+FROM mv_estabelecimento_ativo e
+JOIN municipio_ibge mi ON mi.codigo_rf = e.municipio
+GROUP BY 1, 2, 3
+ORDER BY ativas DESC
+LIMIT 20;

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dockdb-cnpj"
-version = "0.5.2"
+version = "0.6.0"
 description = "Base pública de CNPJ em DuckDB — download, sync, CLI, Streamlit e API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,11 +30,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
+dev = [
+  "pytest>=8.0.0",
+  "httpx2>=2.0.0",
+  "ruff>=0.6.0",
+  "mypy>=1.10.0",
+  "pandas-stubs",
+  "types-requests",
+]
 
 [project.urls]
 Homepage = "https://github.com/mateuspestana/dockdb-cnpj"
-Author = "mailto:matheus.pestana@fgv.br"
+Repository = "https://github.com/mateuspestana/dockdb-cnpj"
+Changelog = "https://github.com/mateuspestana/dockdb-cnpj/blob/main/CHANGELOG.md"
 
 [project.scripts]
 dockdb-cnpj = "dockdb_cnpj.cli:app"
@@ -43,4 +51,25 @@ dockdb-cnpj = "dockdb_cnpj.cli:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
-dockdb_cnpj = ["py.typed"]
+dockdb_cnpj = ["py.typed", "data/*.csv"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["exemplos"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"streamlit_app/app.py" = ["W291"]  # "  \n" = quebra de linha no Markdown
+
+[tool.mypy]
+ignore_missing_imports = true
+warn_unused_ignores = false
+files = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
