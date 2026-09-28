@@ -24,9 +24,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from dockdb_cnpj import __email__, __version__  # noqa: E402
+from dockdb_cnpj.analytics import agregados_municipio, coortes  # noqa: E402
 from dockdb_cnpj.cnpj import calcular_dv, formatar, limpar  # noqa: E402
 from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT  # noqa: E402
 from dockdb_cnpj.db import connect  # noqa: E402
+from dockdb_cnpj.enriquecimento import enriquecer  # noqa: E402
 from dockdb_cnpj.queries import (  # noqa: E402
     agregados_cnae,
     agregados_situacao,
@@ -93,6 +95,15 @@ class QueryBody(BaseModel):
     limit: int = Field(DEFAULT_QUERY_LIMIT, ge=1, le=MAX_QUERY_LIMIT)
 
 
+class EnriquecerBody(BaseModel):
+    cnpjs: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_QUERY_LIMIT,
+        description="CNPJs (8 ou 14 posições, numéricos ou alfanuméricos)",
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {
@@ -146,6 +157,8 @@ def _busca_params(
     municipio: Optional[str] = None,
     municipio_nome: Optional[str] = None,
     municipio_ibge: Optional[str] = Query(None, description="Código IBGE (7 dígitos)"),
+    cnae_secao: Optional[str] = Query(None, description="Seção CNAE (letra; principal)"),
+    cnae_divisao: Optional[str] = Query(None, description="Divisão CNAE (2 dígitos; principal)"),
     q: Optional[str] = None,
     fuzzy: bool = False,
     situacao: Optional[str] = None,
@@ -166,6 +179,8 @@ def _busca_params(
         municipio=municipio,
         municipio_nome=municipio_nome,
         municipio_ibge=municipio_ibge,
+        cnae_secao=cnae_secao,
+        cnae_divisao=cnae_divisao,
         q=q,
         fuzzy=fuzzy,
         situacao=situacao,
@@ -209,16 +224,63 @@ def list_socios(
 def get_agregados(
     tipo: str,
     uf: Optional[str] = None,
-    limit: int = Query(30, ge=1, le=500),
+    nivel: str = Query("subclasse", description="tipo=cnae: subclasse|classe|grupo|divisao|secao"),
+    limit: int = Query(30, ge=1, le=6000),
     con: duckdb.DuckDBPyConnection = Db,
 ) -> list[dict]:
-    if tipo == "uf":
-        return agregados_uf(con, limit=limit)
-    if tipo == "cnae":
-        return agregados_cnae(con, uf=uf, limit=limit)
-    if tipo == "situacao":
-        return agregados_situacao(con)
-    raise HTTPException(status_code=400, detail="tipo deve ser uf, cnae ou situacao")
+    try:
+        if tipo == "uf":
+            return agregados_uf(con, limit=limit)
+        if tipo == "cnae":
+            return agregados_cnae(con, uf=uf, nivel=nivel, limit=limit)
+        if tipo == "situacao":
+            return agregados_situacao(con)
+        if tipo == "municipio":
+            return agregados_municipio(con, uf=uf, limit=limit)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    raise HTTPException(
+        status_code=400, detail="tipo deve ser uf, cnae, situacao ou municipio"
+    )
+
+
+@app.get("/coortes")
+def get_coortes(
+    freq: str = Query("ano", pattern="^(ano|mes)$"),
+    desde: Optional[str] = Query(None, description="AAAA ou AAAAMM"),
+    ate: Optional[str] = Query(None, description="AAAA ou AAAAMM"),
+    uf: Optional[str] = None,
+    municipio: Optional[str] = None,
+    municipio_ibge: Optional[str] = None,
+    cnae: Optional[str] = None,
+    cnae_secao: Optional[str] = None,
+    cnae_divisao: Optional[str] = None,
+    matriz_filial: Optional[str] = None,
+    con: duckdb.DuckDBPyConnection = Db,
+) -> list[dict]:
+    """Aberturas, baixas, saldo e sobrevivência por período (retrato do dump atual)."""
+    try:
+        return coortes(
+            con,
+            freq=freq,  # type: ignore[arg-type]
+            desde=desde,
+            ate=ate,
+            uf=uf,
+            municipio=municipio,
+            municipio_ibge=municipio_ibge,
+            cnae=cnae,
+            cnae_secao=cnae_secao,
+            cnae_divisao=cnae_divisao,
+            matriz_filial=matriz_filial,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/enriquecer")
+def post_enriquecer(body: EnriquecerBody, con: duckdb.DuckDBPyConnection = Db) -> list[dict]:
+    """Busca por lista: uma linha por CNPJ enviado, na mesma ordem."""
+    return enriquecer(con, body.cnpjs)
 
 
 @app.get("/export")

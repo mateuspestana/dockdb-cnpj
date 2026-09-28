@@ -60,3 +60,27 @@ def test_empresas_ibge(client: TestClient) -> None:
     r = client.get("/empresas", params={"municipio_ibge": "3550308"})
     assert r.status_code == 200
     assert {x["cnpj"] for x in r.json()} == {"12345678000195", "87654321000198"}
+
+
+def test_coortes_api(client: TestClient) -> None:
+    r = client.get("/coortes", params={"freq": "ano", "uf": "SP"})
+    assert r.status_code == 200
+    assert {x["periodo"] for x in r.json()} == {"2019", "2020", "2021"}
+    assert client.get("/coortes", params={"freq": "semana"}).status_code == 422
+
+
+def test_enriquecer_api(client: TestClient) -> None:
+    r = client.post("/enriquecer", json={"cnpjs": ["12ABC345", "00000000000000"]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body[0]["cnpj"] == "12ABC34501DE35"
+    assert body[1]["encontrado"] is False
+    assert client.post("/enriquecer", json={"cnpjs": []}).status_code == 422
+
+
+def test_agregados_api(client: TestClient) -> None:
+    secoes = client.get("/agregados/cnae", params={"nivel": "secao"}).json()
+    assert {x["secao"] for x in secoes} == {"J", "G"}
+    mun = client.get("/agregados/municipio").json()
+    assert mun and "latitude" in mun[0]
+    assert client.get("/agregados/cnae", params={"nivel": "x"}).status_code == 400

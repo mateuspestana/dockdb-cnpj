@@ -72,3 +72,13 @@ JOIN municipio_ibge mi ON mi.codigo_rf = e.municipio
 GROUP BY 1, 2, 3
 ORDER BY ativas DESC
 LIMIT 20;
+
+-- v0.7: ativos por seção CNAE (hierarquia)
+SELECT h.secao, h.secao_desc, count(*) AS ativas
+FROM mv_estabelecimento_ativo e
+JOIN cnae_hierarquia h ON h.cnae = e.cnae_fiscal
+GROUP BY 1, 2
+ORDER BY ativas DESC;
+
+-- v0.7: CEPs já geocodificados (cache da BrasilAPI)
+SELECT status, count(*) FROM cep_geo GROUP BY 1;

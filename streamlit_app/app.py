@@ -16,8 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from dockdb_cnpj import __email__, __version__  # noqa: E402
+from dockdb_cnpj.analytics import agregados_municipio, coortes  # noqa: E402
 from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT  # noqa: E402
 from dockdb_cnpj.db import connect  # noqa: E402
+from dockdb_cnpj.enriquecimento import enriquecer, ler_lista  # noqa: E402
 from dockdb_cnpj.queries import (  # noqa: E402
     agregados_cnae,
     agregados_situacao,
@@ -72,9 +74,21 @@ ref = get_referencia(con)
 if ref:
     st.info(" · ".join(f"**{r['referencia']}:** {r['valor']}" for r in ref[:5]))
 
-tab_cnpj, tab_buscar, tab_socio, tab_agg, tab_sql = st.tabs(
-    ["CNPJ", "Buscar", "Sócio", "Analytics", "SQL"]
+tab_cnpj, tab_buscar, tab_lista, tab_socio, tab_agg, tab_sql = st.tabs(
+    ["CNPJ", "Buscar", "Lista", "Sócio", "Analytics", "SQL"]
 )
+
+
+def mapa(df: pd.DataFrame, size: str | None = None) -> None:
+    if df.empty or "latitude" not in df:
+        return
+    pts = df.dropna(subset=["latitude", "longitude"])
+    if pts.empty:
+        return
+    if size:
+        st.map(pts, latitude="latitude", longitude="longitude", size=size)
+    else:
+        st.map(pts, latitude="latitude", longitude="longitude")
 
 with tab_cnpj:
     cnpj = st.text_input(
@@ -106,6 +120,8 @@ with tab_buscar:
     with c1:
         uf = st.text_input("UF", placeholder="SP")
         cnae = st.text_input("CNAE")
+        cnae_secao = st.text_input("Seção CNAE", placeholder="J")
+        cnae_divisao = st.text_input("Divisão CNAE", placeholder="62")
         porte = st.text_input("Porte", placeholder="01")
     with c2:
         municipio = st.text_input("Município (código RF ou nome)")
@@ -133,6 +149,8 @@ with tab_buscar:
                 incluir_cnae_secundario=incluir_secundario,
                 municipio=municipio or None,
                 municipio_ibge=municipio_ibge or None,
+                cnae_secao=cnae_secao or None,
+                cnae_divisao=cnae_divisao or None,
                 q=q or None,
                 fuzzy=fuzzy,
                 situacao=situacao or None,
@@ -154,6 +172,42 @@ with tab_buscar:
                 "Baixar CSV",
                 df.to_csv(index=False).encode("utf-8"),
                 file_name="dockdb_cnpj_busca.csv",
+                mime="text/csv",
+            )
+            st.caption(
+                "Mapa: centroide do município, ou ponto do CEP quando geocodificado "
+                "(`geocodificar` na CLI)."
+            )
+            mapa(df)
+
+with tab_lista:
+    st.markdown(
+        "Envie um **.csv / .txt / .parquet** com CNPJs (8 ou 14 posições). "
+        "A coluna com “cnpj” no nome é detectada; zeros à esquerda perdidos são recuperados."
+    )
+    arq = st.file_uploader("Lista de CNPJs", type=["csv", "txt", "parquet"])
+    col_lista = st.text_input("Coluna (opcional)")
+    if arq is not None and st.button("Enriquecer", type="primary"):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=Path(arq.name).suffix, delete=False) as tmp:
+            tmp.write(arq.getvalue())
+        try:
+            lista = ler_lista(tmp.name, coluna=col_lista or None)
+            df_l = pd.DataFrame(enriquecer(con, lista))
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+        if not df_l.empty:
+            st.caption(f"{int(df_l['encontrado'].sum())}/{len(df_l)} encontrados")
+        st.dataframe(df_l, use_container_width=True)
+        if not df_l.empty:
+            st.download_button(
+                "Baixar CSV",
+                df_l.to_csv(index=False).encode("utf-8"),
+                file_name="dockdb_cnpj_lista.csv",
                 mime="text/csv",
             )
 
@@ -182,10 +236,62 @@ with tab_agg:
         st.bar_chart(df_sit.set_index("situacao_desc")["n"])
         st.dataframe(df_sit, use_container_width=True)
     uf_cnae = st.text_input("UF para top CNAE", placeholder="SP", key="ufc")
+    nivel = st.selectbox(
+        "Nível CNAE", ["subclasse", "classe", "grupo", "divisao", "secao"], key="nivel"
+    )
     st.subheader("Top CNAE (ativos)")
-    df_c = pd.DataFrame(agregados_cnae(con, uf=uf_cnae or None, limit=20))
-    if not df_c.empty:
-        st.dataframe(df_c, use_container_width=True)
+    try:
+        df_c = pd.DataFrame(agregados_cnae(con, uf=uf_cnae or None, nivel=nivel, limit=20))
+        if not df_c.empty:
+            st.dataframe(df_c, use_container_width=True)
+    except ValueError as e:
+        st.warning(str(e))
+
+    st.subheader("Coortes: aberturas, baixas e sobrevivência")
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        c_freq = st.selectbox("Frequência", ["ano", "mes"], key="cfreq")
+    with k2:
+        c_uf = st.text_input("UF", key="cuf")
+    with k3:
+        c_secao = st.text_input("Seção CNAE", key="csec")
+    with k4:
+        c_desde = st.text_input("Desde (AAAA/AAAAMM)", value="2000", key="cdesde")
+    if st.button("Calcular coortes"):
+        try:
+            df_co = pd.DataFrame(
+                coortes(
+                    con,
+                    freq=c_freq,  # type: ignore[arg-type]
+                    uf=c_uf or None,
+                    cnae_secao=c_secao or None,
+                    desde=c_desde or None,
+                )
+            )
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
+        if not df_co.empty:
+            st.line_chart(df_co.set_index("periodo")[["aberturas", "baixas"]])
+            st.line_chart(df_co.set_index("periodo")["taxa_sobrevivencia"])
+            st.dataframe(df_co, use_container_width=True)
+        st.caption(
+            "Retrato do dump atual: baixas = estabelecimentos hoje baixados, pela data da "
+            "situação; sobrevivência = fração das aberturas do período ainda ativa hoje."
+        )
+
+    st.subheader("Mapa: ativos por município")
+    m_uf = st.text_input("UF (vazio = Brasil)", key="muf")
+    if st.button("Gerar mapa"):
+        try:
+            df_m = pd.DataFrame(agregados_municipio(con, uf=m_uf or None))
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
+        if not df_m.empty:
+            df_m["raio"] = (df_m["n"] ** 0.5) * 40
+            mapa(df_m, size="raio")
+            st.dataframe(df_m, use_container_width=True)
 
 with tab_sql:
     st.markdown("Apenas `SELECT` / `WITH`. DDL/DML são bloqueados.")

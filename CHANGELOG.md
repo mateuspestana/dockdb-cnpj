@@ -5,6 +5,23 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
+## [0.7.0] — 2026-09-27
+
+### Added
+
+- **Hierarquia CNAE**: tabela `cnae_hierarquia` (subclasse → classe → grupo → divisão → seção), versionada no pacote a partir da API do IBGE; filtros `--cnae-secao` / `--cnae-divisao` na busca; `agregados cnae --nivel classe|grupo|divisao|secao`
+- **Coortes**: `coortes` (CLI), `GET /coortes` e gráfico no Streamlit — aberturas, baixas, saldo, ativas hoje e taxa de sobrevivência por ano ou mês, com filtros de UF, município, CNAE, seção e divisão
+- **Busca por lista**: `enriquecer` (CLI), `POST /enriquecer` e aba **Lista** no Streamlit; aceita CSV/TXT/Parquet, CNPJ básico (→ matriz), alfanumérico e zeros perdidos no Excel; mantém a ordem e marca `encontrado` / `erro` / `dv_valido`
+- **Coordenadas**: `latitude`, `longitude` e `geo_precisao` na busca, consulta e lista (centroide do município por padrão)
+- **Geocodificação por CEP** (opcional): `geocodificar` consulta a BrasilAPI só para CEPs novos e guarda em `cep_geo`; CEPs geocodificados passam a ter prioridade
+- `agregados municipio` / `GET /agregados/municipio` (ativos por município com código IBGE e centroide) e mapas no Streamlit
+- Coluna `cep` e `cnae_secao` / `cnae_divisao` no resultado da busca
+- Testes de hierarquia, coortes, lista, geocodificação (com cache) e das rotas novas
+
+### Fixed
+
+- Imagem Docker da API sem pandas/pyarrow: `/export?formato=parquet` falhava no container
+
 ## [0.6.0] — 2026-09-27
 
 ### Added
@@ -110,6 +127,7 @@ Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - README com crédito ao [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - `TODO.md` com autenticação da API pendente
 
+[0.7.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.0...v0.5.1

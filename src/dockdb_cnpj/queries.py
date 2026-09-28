@@ -58,7 +58,7 @@ def get_referencia(con: duckdb.DuckDBPyConnection) -> list[dict]:
         return []
 
 
-def _table_exists(con: duckdb.DuckDBPyConnection, name: str) -> bool:
+def table_exists(con: duckdb.DuckDBPyConnection, name: str) -> bool:
     row = con.execute(
         """
         SELECT 1 FROM information_schema.tables
@@ -81,11 +81,73 @@ def _fts_ready(con: duckdb.DuckDBPyConnection) -> bool:
         return False
 
 
+def colunas_extras(con: duckdb.DuckDBPyConnection) -> tuple[str, str]:
+    """(select, joins) para IBGE, hierarquia CNAE e coordenadas sobre ``est``.
+
+    Degrada para NULL quando a base ainda não tem as tabelas auxiliares.
+    Coordenadas: CEP geocodificado (``cep_geo``) quando houver, senão centroide
+    do município.
+    """
+    has_ibge = table_exists(con, "municipio_ibge")
+    has_hier = table_exists(con, "cnae_hierarquia")
+    has_cep = table_exists(con, "cep_geo")
+    sel: list[str] = []
+    joins: list[str] = []
+    if has_ibge:
+        sel.append("mi.codigo_ibge AS municipio_ibge")
+        joins.append("LEFT JOIN municipio_ibge mi ON mi.codigo_rf = est.municipio")
+    else:
+        sel.append("NULL AS municipio_ibge")
+    if has_hier:
+        sel += ["h.secao AS cnae_secao", "h.divisao AS cnae_divisao"]
+        joins.append("LEFT JOIN cnae_hierarquia h ON h.cnae = est.cnae_fiscal")
+    else:
+        sel += ["NULL AS cnae_secao", "NULL AS cnae_divisao"]
+    if has_cep:
+        joins.append("LEFT JOIN cep_geo cg ON cg.cep = est.cep AND cg.status = 'ok'")
+    lat_cep = "cg.latitude" if has_cep else "NULL"
+    lon_cep = "cg.longitude" if has_cep else "NULL"
+    lat_mun = "mi.latitude" if has_ibge else "NULL"
+    lon_mun = "mi.longitude" if has_ibge else "NULL"
+    sel += [
+        f"COALESCE({lat_cep}, {lat_mun}) AS latitude",
+        f"COALESCE({lon_cep}, {lon_mun}) AS longitude",
+        f"CASE WHEN {lat_cep} IS NOT NULL THEN 'cep' "
+        f"WHEN {lat_mun} IS NOT NULL THEN 'municipio' END AS geo_precisao",
+    ]
+    return ",\n".join(sel) + ",", "\n".join(joins)
+
+
+def codigos_cnae_hierarquia(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    secao: str | None = None,
+    divisao: str | None = None,
+) -> list[str]:
+    """Subclasses (código RF) de uma seção e/ou divisão CNAE."""
+    if not table_exists(con, "cnae_hierarquia"):
+        raise ValueError(
+            "Filtro por seção/divisão CNAE exige a tabela cnae_hierarquia — "
+            "rode `dockdb-cnpj upgrade`."
+        )
+    clauses: list[str] = []
+    params: list[Any] = []
+    if secao:
+        clauses.append("secao = ?")
+        params.append(secao.strip().upper())
+    if divisao:
+        clauses.append("divisao = ?")
+        params.append(normalize_digits(divisao).zfill(2))
+    where = " AND ".join(clauses) or "TRUE"
+    rows = fetch_dicts(con, f"SELECT cnae FROM cnae_hierarquia WHERE {where}", params)
+    return [r["cnae"] for r in rows]
+
+
 def consulta_cnpj(con: duckdb.DuckDBPyConnection, cnpj: str) -> dict[str, Any]:
     """Consulta completa com descrições de códigos decodificados."""
     cnpj = normalize_cnpj(cnpj)
     basico = cnpj[:8] if len(cnpj) == 14 else cnpj
-    has_ibge = _table_exists(con, "municipio_ibge")
+    extras_select, extras_join = colunas_extras(con)
 
     empresas = fetch_dicts(
         con,
@@ -105,21 +167,17 @@ def consulta_cnpj(con: duckdb.DuckDBPyConnection, cnpj: str) -> dict[str, Any]:
         porte = emp.get("porte_empresa")
         emp["porte_empresa_desc"] = PORTE_LABEL.get(str(porte or ""), porte)
 
-    ibge_select = "mi.codigo_ibge AS municipio_ibge," if has_ibge else "NULL AS municipio_ibge,"
-    ibge_join = (
-        "LEFT JOIN municipio_ibge mi ON mi.codigo_rf = est.municipio" if has_ibge else ""
-    )
     estab_sql = f"""
         SELECT est.*,
                c.descricao AS cnae_descricao,
                m.descricao AS municipio_nome,
-               {ibge_select}
+               {extras_select}
                mot.descricao AS motivo_descricao,
                p.descricao AS pais_nome
         FROM estabelecimento est
         LEFT JOIN cnae c ON c.codigo = est.cnae_fiscal
         LEFT JOIN municipio m ON m.codigo = est.municipio
-        {ibge_join}
+        {extras_join}
         LEFT JOIN motivo mot ON mot.codigo = est.motivo_situacao_cadastral
         LEFT JOIN pais p ON p.codigo = est.pais
         WHERE {{where}}
@@ -203,8 +261,8 @@ def consulta_cnpj(con: duckdb.DuckDBPyConnection, cnpj: str) -> dict[str, Any]:
     }
 
 
-def _municipio_ibge_para_rf(con: duckdb.DuckDBPyConnection, codigo_ibge: str) -> list[str]:
-    if not _table_exists(con, "municipio_ibge"):
+def municipio_ibge_para_rf(con: duckdb.DuckDBPyConnection, codigo_ibge: str) -> list[str]:
+    if not table_exists(con, "municipio_ibge"):
         raise ValueError(
             "Filtro por código IBGE exige a tabela municipio_ibge — rode `dockdb-cnpj upgrade`."
         )
@@ -224,6 +282,7 @@ def _build_busca_filters(
     municipio: str | None,
     municipio_nome: str | None,
     municipio_rf: list[str],
+    cnae_codigos: list[str],
     q: str | None,
     situacao: str | None,
     porte: str | None,
@@ -284,6 +343,9 @@ def _build_busca_filters(
     if municipio_rf:
         clauses.append(f"est.municipio IN ({', '.join('?' for _ in municipio_rf)})")
         params.extend(municipio_rf)
+    if cnae_codigos:
+        clauses.append(f"est.cnae_fiscal IN ({', '.join('?' for _ in cnae_codigos)})")
+        params.extend(cnae_codigos)
 
     if situacao:
         clauses.append("est.situacao_cadastral = ?")
@@ -375,6 +437,8 @@ def buscar_empresas(
     municipio: str | None = None,
     municipio_nome: str | None = None,
     municipio_ibge: str | None = None,
+    cnae_secao: str | None = None,
+    cnae_divisao: str | None = None,
     q: str | None = None,
     situacao: str | None = None,
     porte: str | None = None,
@@ -390,11 +454,17 @@ def buscar_empresas(
 ) -> list[dict]:
     """Busca estabelecimentos com filtros ricos (v0.4+) e ponte CNAE/FTS (v0.5)."""
     limit = max(1, min(int(limit), MAX_QUERY_LIMIT))
-    use_bridge = _table_exists(con, "estabelecimento_cnae")
+    use_bridge = table_exists(con, "estabelecimento_cnae")
     use_fts = bool(q) and not fuzzy and _fts_ready(con)
-    has_ibge = _table_exists(con, "municipio_ibge")
-    municipio_rf = _municipio_ibge_para_rf(con, municipio_ibge) if municipio_ibge else []
+    municipio_rf = municipio_ibge_para_rf(con, municipio_ibge) if municipio_ibge else []
     if municipio_ibge and not municipio_rf:
+        return []
+    cnae_codigos = (
+        codigos_cnae_hierarquia(con, secao=cnae_secao, divisao=cnae_divisao)
+        if cnae_secao or cnae_divisao
+        else []
+    )
+    if (cnae_secao or cnae_divisao) and not cnae_codigos:
         return []
 
     clauses, params, cnae_origem_expr, cnae_origem_params, need_simples = _build_busca_filters(
@@ -404,6 +474,7 @@ def buscar_empresas(
         municipio=municipio,
         municipio_nome=municipio_nome,
         municipio_rf=municipio_rf,
+        cnae_codigos=cnae_codigos,
         q=None if use_fts else q,
         situacao=situacao,
         porte=porte,
@@ -432,10 +503,7 @@ def buscar_empresas(
     simples_join = (
         "LEFT JOIN simples si ON si.cnpj_basico = est.cnpj_basico" if need_simples else ""
     )
-    ibge_select = "mi.codigo_ibge AS municipio_ibge," if has_ibge else "NULL AS municipio_ibge,"
-    ibge_join = (
-        "LEFT JOIN municipio_ibge mi ON mi.codigo_rf = est.municipio" if has_ibge else ""
-    )
+    extras_select, extras_join = colunas_extras(con)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
         SELECT
@@ -445,7 +513,8 @@ def buscar_empresas(
             est.uf,
             est.municipio,
             m.descricao AS municipio_nome,
-            {ibge_select}
+            est.cep,
+            {extras_select}
             est.cnae_fiscal,
             c.descricao AS cnae_descricao,
             est.cnae_fiscal_secundaria,
@@ -459,7 +528,7 @@ def buscar_empresas(
         FROM estabelecimento est
         JOIN empresas e ON e.cnpj_basico = est.cnpj_basico
         LEFT JOIN municipio m ON m.codigo = est.municipio
-        {ibge_join}
+        {extras_join}
         LEFT JOIN cnae c ON c.codigo = est.cnae_fiscal
         {simples_join}
         {where}
@@ -561,12 +630,19 @@ def agregados_uf(con: duckdb.DuckDBPyConnection, *, limit: int = 30) -> list[dic
     )
 
 
+NIVEIS_CNAE = ("subclasse", "classe", "grupo", "divisao", "secao")
+
+
 def agregados_cnae(
     con: duckdb.DuckDBPyConnection,
     *,
     uf: str | None = None,
+    nivel: str = "subclasse",
     limit: int = 30,
 ) -> list[dict]:
+    """Estabelecimentos ativos por CNAE principal, no nível hierárquico pedido."""
+    if nivel not in NIVEIS_CNAE:
+        raise ValueError(f"nivel deve ser um de: {', '.join(NIVEIS_CNAE)}")
     clauses = ["est.situacao_cadastral = '02'"]
     params: list[Any] = []
     if uf:
@@ -574,12 +650,31 @@ def agregados_cnae(
         params.append(uf.upper())
     params.append(limit)
     where = " AND ".join(clauses)
+    if nivel == "subclasse":
+        return fetch_dicts(
+            con,
+            f"""
+            SELECT est.cnae_fiscal AS cnae, c.descricao, count(*) AS n
+            FROM estabelecimento est
+            LEFT JOIN cnae c ON c.codigo = est.cnae_fiscal
+            WHERE {where}
+            GROUP BY 1, 2
+            ORDER BY n DESC
+            LIMIT ?
+            """,
+            params,
+        )
+    if not table_exists(con, "cnae_hierarquia"):
+        raise ValueError(
+            "Agregar por classe/grupo/divisão/seção exige a tabela cnae_hierarquia — "
+            "rode `dockdb-cnpj upgrade`."
+        )
     return fetch_dicts(
         con,
         f"""
-        SELECT est.cnae_fiscal AS cnae, c.descricao, count(*) AS n
+        SELECT h.{nivel} AS {nivel}, h.{nivel}_desc AS descricao, count(*) AS n
         FROM estabelecimento est
-        LEFT JOIN cnae c ON c.codigo = est.cnae_fiscal
+        LEFT JOIN cnae_hierarquia h ON h.cnae = est.cnae_fiscal
         WHERE {where}
         GROUP BY 1, 2
         ORDER BY n DESC

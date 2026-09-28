@@ -14,8 +14,10 @@ import typer
 
 from dockdb_cnpj import __email__, __version__
 from dockdb_cnpj.cnpj import calcular_dv, dv_valido, formatar, limpar
-from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT
+from dockdb_cnpj.analytics import agregados_municipio, coortes
+from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT
 from dockdb_cnpj.db import connect
+from dockdb_cnpj.enriquecimento import enriquecer, ler_lista, salvar
 from dockdb_cnpj.queries import (
     agregados_cnae,
     agregados_situacao,
@@ -130,6 +132,12 @@ def buscar_cmd(
     municipio_ibge: Optional[str] = typer.Option(
         None, help="Código IBGE do município (7 dígitos)"
     ),
+    cnae_secao: Optional[str] = typer.Option(
+        None, help="Seção CNAE (letra A–U; CNAE principal)"
+    ),
+    cnae_divisao: Optional[str] = typer.Option(
+        None, help="Divisão CNAE (2 dígitos; CNAE principal)"
+    ),
     q: Optional[str] = typer.Option(None, help="Texto em razão social / fantasia"),
     fuzzy: bool = typer.Option(False, help="Busca fuzzy (Jaro-Winkler) em q"),
     situacao: Optional[str] = typer.Option(None, help="Situação cadastral"),
@@ -157,6 +165,8 @@ def buscar_cmd(
         municipio=municipio,
         municipio_nome=municipio_nome,
         municipio_ibge=municipio_ibge,
+        cnae_secao=cnae_secao,
+        cnae_divisao=cnae_divisao,
         q=q,
         fuzzy=fuzzy,
         situacao=situacao,
@@ -201,22 +211,144 @@ def socio_cmd(
 
 @app.command("agregados")
 def agregados_cmd(
-    tipo: str = typer.Argument("uf", help="uf | cnae | situacao"),
-    uf: Optional[str] = typer.Option(None, help="UF (para tipo=cnae)"),
+    tipo: str = typer.Argument("uf", help="uf | cnae | situacao | municipio"),
+    uf: Optional[str] = typer.Option(None, help="UF (para tipo=cnae ou municipio)"),
+    nivel: str = typer.Option(
+        "subclasse", help="Para tipo=cnae: subclasse | classe | grupo | divisao | secao"
+    ),
     limit: int = typer.Option(30, help="Limite"),
 ) -> None:
-    """Agregações rápidas (UF, CNAE, situação)."""
+    """Agregações rápidas (UF, CNAE em qualquer nível, situação, município)."""
     with _con() as con:
-        if tipo == "uf":
-            rows = agregados_uf(con, limit=limit)
-        elif tipo == "cnae":
-            rows = agregados_cnae(con, uf=uf, limit=limit)
-        elif tipo == "situacao":
-            rows = agregados_situacao(con)
-        else:
-            typer.secho("tipo deve ser uf, cnae ou situacao", fg=typer.colors.RED, err=True)
-            raise typer.Exit(code=2)
+        try:
+            if tipo == "uf":
+                rows = agregados_uf(con, limit=limit)
+            elif tipo == "cnae":
+                rows = agregados_cnae(con, uf=uf, nivel=nivel, limit=limit)
+            elif tipo == "situacao":
+                rows = agregados_situacao(con)
+            elif tipo == "municipio":
+                rows = agregados_municipio(con, uf=uf, limit=limit)
+            else:
+                raise ValueError("tipo deve ser uf, cnae, situacao ou municipio")
+        except ValueError as e:
+            typer.secho(str(e), fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=2) from e
     typer.echo(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+
+
+@app.command("coortes")
+def coortes_cmd(
+    freq: str = typer.Option("ano", help="ano | mes"),
+    desde: Optional[str] = typer.Option(None, help="Período inicial (AAAA ou AAAAMM)"),
+    ate: Optional[str] = typer.Option(None, help="Período final (AAAA ou AAAAMM)"),
+    uf: Optional[str] = typer.Option(None, help="UF"),
+    municipio: Optional[str] = typer.Option(None, help="Código RF do município"),
+    municipio_ibge: Optional[str] = typer.Option(None, help="Código IBGE do município"),
+    cnae: Optional[str] = typer.Option(None, help="CNAE principal (subclasse)"),
+    cnae_secao: Optional[str] = typer.Option(None, help="Seção CNAE (letra)"),
+    cnae_divisao: Optional[str] = typer.Option(None, help="Divisão CNAE (2 dígitos)"),
+    matriz_filial: Optional[str] = typer.Option(None, help="1=matriz, 2=filial"),
+    export: Optional[Path] = typer.Option(None, help="Gravar em .csv ou .parquet"),
+) -> None:
+    """Aberturas, baixas, saldo e sobrevivência por ano/mês (retrato do dump atual)."""
+    with _con() as con:
+        try:
+            rows = coortes(
+                con,
+                freq=freq,  # type: ignore[arg-type]
+                desde=desde,
+                ate=ate,
+                uf=uf,
+                municipio=municipio,
+                municipio_ibge=municipio_ibge,
+                cnae=cnae,
+                cnae_secao=cnae_secao,
+                cnae_divisao=cnae_divisao,
+                matriz_filial=matriz_filial,
+            )
+        except ValueError as e:
+            typer.secho(str(e), fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=2) from e
+    if export:
+        typer.echo(f"Exportado: {salvar(rows, export)}")
+        return
+    typer.echo(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+
+
+@app.command("enriquecer")
+def enriquecer_cmd(
+    arquivo: Path = typer.Argument(..., help="Lista de CNPJs (.csv, .txt ou .parquet)"),
+    coluna: Optional[str] = typer.Option(None, help="Coluna com o CNPJ (padrão: detecta)"),
+    saida: Optional[Path] = typer.Option(None, help="Gravar em .csv ou .parquet"),
+) -> None:
+    """Busca por lista: devolve os dados cadastrais de cada CNPJ, na ordem do arquivo."""
+    try:
+        cnpjs = ler_lista(arquivo, coluna=coluna)
+    except (ValueError, OSError) as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2) from e
+    with _con() as con:
+        rows = enriquecer(con, cnpjs)
+    achados = sum(1 for r in rows if r["encontrado"])
+    typer.secho(f"{achados}/{len(rows)} encontrados", err=True)
+    if saida:
+        typer.echo(f"Exportado: {salvar(rows, saida)}")
+        return
+    typer.echo(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+
+
+@app.command("geocodificar")
+def geocodificar_cmd(
+    uf: Optional[str] = typer.Option(None, help="UF"),
+    municipio_ibge: Optional[str] = typer.Option(None, help="Código IBGE do município"),
+    cnae: Optional[str] = typer.Option(None, help="CNAE (principal/secundário)"),
+    situacao: Optional[str] = typer.Option("02", help="Situação cadastral (padrão: ativas)"),
+    arquivo: Optional[Path] = typer.Option(
+        None, help="Em vez de filtros, geocodificar os CEPs de uma lista de CNPJs"
+    ),
+    limite: int = typer.Option(100, help="Máximo de CEPs novos a consultar"),
+    pausa: float = typer.Option(0.3, help="Segundos entre chamadas à BrasilAPI"),
+) -> None:
+    """Geocodifica CEPs via BrasilAPI e guarda em `cep_geo` (exige lock de escrita)."""
+    from dockdb_cnpj.geo import geocodificar_ceps
+
+    try:
+        with connect(DB_PATH, read_only=False) as con:
+            if arquivo:
+                ceps = [r["cep"] or "" for r in enriquecer(con, ler_lista(arquivo))]
+            else:
+                rows = buscar_empresas(
+                    con,
+                    uf=uf,
+                    municipio_ibge=municipio_ibge,
+                    cnae=cnae,
+                    situacao=situacao or None,
+                    limit=MAX_QUERY_LIMIT,
+                )
+                ceps = [r["cep"] or "" for r in rows]
+
+            def progresso(i: int, total: int, cep: str, res: dict) -> None:
+                typer.echo(f"  [{i}/{total}] {cep}: {res.get('status')}", err=True)
+
+            stats = geocodificar_ceps(
+                con, ceps, pausa=pausa, limite=limite, on_progress=progresso
+            )
+    except Exception as e:
+        msg = str(e).lower()
+        if "lock" in msg or "conflict" in msg:
+            typer.secho(
+                "Não foi possível abrir a base em modo escrita (lock). "
+                "Feche Streamlit/API e tente de novo.",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=2) from e
+        if isinstance(e, ValueError):
+            typer.secho(str(e), fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=2) from e
+        raise
+    typer.echo(json.dumps(stats, ensure_ascii=False, indent=2))
 
 
 @app.command("validar")

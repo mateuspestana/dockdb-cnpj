@@ -66,6 +66,11 @@ python cli/consulta.py cnpj 12.ABC.345/01DE-35          # alfanumérico
 python cli/consulta.py dv 12ABC34501DE                  # calcula/valida DV (sem base)
 python cli/consulta.py buscar --uf SP --cnae 6201501 --situacao 02 --mei --limit 20
 python cli/consulta.py buscar --municipio-ibge 3304557 --cnae 6201501 --limit 20
+python cli/consulta.py buscar --uf RJ --cnae-secao J --situacao 02 --limit 20
+python cli/consulta.py enriquecer minha_lista.csv --saida enriquecida.parquet
+python cli/consulta.py coortes --freq ano --uf SP --cnae-divisao 62 --desde 2015
+python cli/consulta.py agregados cnae --nivel secao
+python cli/consulta.py geocodificar --municipio-ibge 3304557 --limite 200
 python cli/consulta.py buscar --uf SP --cnae 6201501 --export out.csv
 python cli/consulta.py socio --nome "SILVA" --limit 20
 python cli/consulta.py agregados uf
@@ -75,7 +80,7 @@ python cli/consulta.py sql "SELECT uf, count(*) n FROM estabelecimento GROUP BY 
 streamlit run streamlit_app/app.py
 ```
 
-> **Atualizando o código numa base já carregada:** rode `python cli/consulta.py upgrade` (exige lock exclusivo de escrita) em vez de recarregar tudo. Se a base já está na v0.5, `upgrade --no-cnae-bridge --no-views --no-fts` basta para criar as tabelas novas (leva segundos).
+> **Atualizando o código numa base já carregada:** rode `python cli/consulta.py upgrade` (exige lock exclusivo de escrita) em vez de recarregar tudo. Se a base já está na v0.5 ou depois, `upgrade --no-cnae-bridge --no-views --no-fts` basta para criar as tabelas auxiliares novas (leva segundos).
 
 ### CNPJ alfanumérico
 
@@ -93,6 +98,22 @@ GROUP BY 1, 2 ORDER BY ativas DESC;
 ```
 
 A busca e a consulta devolvem `municipio_ibge`, e `--municipio-ibge` / `?municipio_ibge=` filtra por ele. O CSV é versionado em `src/dockdb_cnpj/data/` (fonte: [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros)); para regerar, `python scripts/build_reference_data.py`.
+
+### Hierarquia CNAE
+
+A tabela `cnae_hierarquia` liga cada subclasse à classe, ao grupo, à divisão e à seção da CNAE 2.3 (fonte: API de CNAE do IBGE). Com ela dá para filtrar por setor inteiro (`--cnae-secao C` = indústria de transformação; `--cnae-divisao 62` = TI) e agregar em qualquer nível (`agregados cnae --nivel secao`). Esses filtros olham o CNAE **principal**. Subclasses antigas que a Receita ainda usa são ligadas pelo prefixo da classe.
+
+### Busca por lista
+
+`enriquecer` recebe um `.csv`, `.txt` ou `.parquet` com CNPJs e devolve, na mesma ordem, os dados cadastrais de cada um (razão social, situação, CNAE e seção, porte, capital, endereço, município + IBGE, Simples/MEI), com `encontrado`, `dv_valido` e `erro`. CNPJ básico (8) devolve a matriz; zeros à esquerda perdidos no Excel são recuperados; a coluna com "cnpj" no nome é detectada (ou use `--coluna`). Na API: `POST /enriquecer {"cnpjs": [...]}`; no Streamlit: aba **Lista**. Uma lista de 20 mil CNPJs leva ~4 s na base completa.
+
+### Coortes de abertura e baixa
+
+`coortes` gera séries por ano ou mês com `aberturas`, `baixas`, `saldo`, `ativas_hoje` e `taxa_sobrevivencia`, filtráveis por UF, município, CNAE, seção e divisão. É um **retrato do dump atual**: baixas contam estabelecimentos hoje baixados pela data da situação cadastral, e a sobrevivência é a fração das aberturas do período que segue ativa na data de referência.
+
+### Coordenadas e mapas
+
+Busca, consulta e lista devolvem `latitude`, `longitude` e `geo_precisao`. Sem nada a fazer, o ponto é o **centroide do município** (`geo_precisao = municipio`). Para precisão de CEP, `geocodificar` consulta a [BrasilAPI](https://brasilapi.com.br/) só para CEPs ainda não vistos e guarda na tabela `cep_geo` (precisa de lock de escrita; use `--limite` e `--pausa` para não sobrecarregar o serviço). Esses CEPs passam a ter prioridade (`geo_precisao = cep`). O Streamlit mostra os resultados da busca num mapa e tem um mapa de ativos por município em **Analytics**.
 
 ### Sync
 
@@ -127,9 +148,11 @@ docker compose up --build
 |--------|------|
 | GET | `/health`, `/referencia`, `/cnpj/{cnpj}` (aceita alfanumérico) |
 | GET | `/dv/{cnpj}` — valida (14) ou calcula (12) o dígito verificador |
-| GET | `/empresas?uf=&cnae=&mei=&simples=&porte=&municipio_nome=&municipio_ibge=&q=&fuzzy=&limit=` |
+| GET | `/empresas?uf=&cnae=&cnae_secao=&cnae_divisao=&mei=&simples=&porte=&municipio_nome=&municipio_ibge=&q=&fuzzy=&limit=` |
 | GET | `/socios?nome=&documento=&limit=` |
-| GET | `/agregados/{uf\|cnae\|situacao}` |
+| GET | `/agregados/{uf\|cnae\|situacao\|municipio}` (`?nivel=secao` para CNAE) |
+| GET | `/coortes?freq=ano\|mes&desde=&ate=&uf=&cnae_secao=&…` |
+| POST | `/enriquecer` — `{"cnpjs": ["…", "…"]}` (até `CNPJ_MAX_QUERY_LIMIT`) |
 | GET | `/export?formato=csv\|parquet&…` (mesmos filtros de `/empresas`) |
 | POST | `/query` — `{"sql":"SELECT …","limit":1000}` (somente SELECT/WITH) |
 | Docs | http://127.0.0.1:8000/docs |
@@ -148,7 +171,7 @@ uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 dockdb-cnpj/
   src/dockdb_cnpj/     # núcleo
-  src/dockdb_cnpj/data # tabelas auxiliares versionadas (IBGE)
+  src/dockdb_cnpj/data # tabelas auxiliares versionadas (IBGE, CNAE)
   scripts/             # download, load, sync, cleanup_raw
   cli/                 # CLI
   streamlit_app/       # UI (+ Analytics)
@@ -180,6 +203,8 @@ A CI roda os mesmos três passos em cada push e PR (Python 3.10, 3.12 e 3.13), u
 - Referência de fluxo e layout: [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - Listagem WebDAV: [cnpj-data-pipeline](https://github.com/caiopizzol/cnpj-data-pipeline)
 - Municípios (código SIAFI × IBGE e centroides): [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros) (MIT)
+- Hierarquia CNAE 2.3: [API de CNAE do IBGE](https://servicodados.ibge.gov.br/api/docs/cnae)
+- Geocodificação de CEP (opcional): [BrasilAPI](https://brasilapi.com.br/)
 
 ## Autor
 
