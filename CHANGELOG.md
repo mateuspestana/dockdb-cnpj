@@ -5,6 +5,24 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
+## [0.8.0] — 2026-09-27
+
+### Added
+
+- **Cache na API** (ligado por padrão): respostas `GET` em JSON ficam em memória por `CNPJ_API_CACHE_TTL` s (300), até `CNPJ_API_CACHE_MAX` itens (512), com cabeçalho `X-Cache: HIT|MISS`; estatísticas no `/health`
+- **Rate limit na API** (desligado por padrão): `CNPJ_API_RATE_LIMIT` requisições/min por IP, resposta `429` com `Retry-After`; `CNPJ_API_TRUST_PROXY=1` usa `X-Forwarded-For`
+- **Compactação**: CLI `compactar` reescreve a base num arquivo novo (esquema, dados e só depois os índices, com limite de RAM `--memoria` e excedente em disco), confere as contagens de todas as tabelas e só então substitui; `--manter-backup` guarda a original. ~26 min na base completa com 20 GB de RAM
+- **Retenção**: recarga com `--manter-backups N` / `CNPJ_KEEP_BACKUPS` guarda a base anterior como `cnpj.duckdb.bak-AAAAMM` e mantém só as N mais recentes; CLI `retencao` aplica a política a backups e a exports velhos (`CNPJ_EXPORTS_MAX_AGE_H`)
+- Módulos `dockdb_cnpj.cache` e `dockdb_cnpj.manutencao`; testes de cache, rate limit, compactação e retenção
+
+### Changed
+
+- `/export` apaga o arquivo gerado logo após enviá-lo e limpa exports antigos a cada chamada; diretório configurável por `CNPJ_EXPORTS_DIR`
+
+### Fixed
+
+- Busca textual (FTS) sem outros filtros levava ~1 min na base completa desde a v0.7.0 (o score BM25 era avaliado no join com `estabelecimento`); agora é calculado antes, só sobre `empresas`: ~3 s
+
 ## [0.7.0] — 2026-09-27
 
 ### Added
@@ -127,6 +145,7 @@ Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - README com crédito ao [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - `TODO.md` com autenticação da API pendente
 
+[0.8.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.1...v0.5.2

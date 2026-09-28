@@ -75,6 +75,8 @@ python cli/consulta.py buscar --uf SP --cnae 6201501 --export out.csv
 python cli/consulta.py socio --nome "SILVA" --limit 20
 python cli/consulta.py agregados uf
 python cli/consulta.py validar
+python cli/consulta.py compactar                    # recupera espaço (lock exclusivo)
+python cli/consulta.py retencao --manter-backups 1 --dry-run
 python cli/consulta.py sql "SELECT uf, count(*) n FROM estabelecimento GROUP BY 1 ORDER BY 2 DESC"
 
 streamlit run streamlit_app/app.py
@@ -134,6 +136,23 @@ python scripts/cleanup_raw.py -y
 python scripts/cleanup_raw.py --dry-run
 ```
 
+### Compactação e retenção
+
+O DuckDB não devolve ao disco o espaço de tabelas apagadas ou reescritas (ponte CNAE, `upgrade`, recarga de sócios). `compactar` copia a base para um arquivo novo, confere as contagens de todas as tabelas e só então troca (exige lock exclusivo e espaço livre do tamanho da base; ~26 min na base completa). O DuckDB usa no máximo metade da RAM (`--memoria 16GB` para mudar) e despeja o excedente em disco:
+
+```bash
+python cli/consulta.py compactar                 # --manter-backup guarda a original
+```
+
+Para não ficar sem base se a carga de um mês novo der problema, a recarga pode **guardar a base anterior** (`cnpj.duckdb.bak-AAAAMM`) e manter só as N mais recentes. Cada backup ocupa o tamanho da base (~50 GB):
+
+```bash
+python scripts/sync_cnpj.py -y --manter-backups 1     # ou CNPJ_KEEP_BACKUPS=1
+python cli/consulta.py retencao --manter-backups 0 --dry-run
+```
+
+`retencao` também apaga exports velhos da API (`CNPJ_EXPORTS_MAX_AGE_H`, padrão 24 h). A própria API já apaga cada export logo depois de enviá-lo.
+
 > **Aviso (ago/2026):** em sócios, `cnpj_cpf_socio` pode trazer só o radical (8 dígitos) quando o sócio é empresa. A carga resolve para o CNPJ completo da matriz (mesma correção do cnpj-sqlite).
 
 ## API (Docker)
@@ -158,6 +177,8 @@ docker compose up --build
 | Docs | http://127.0.0.1:8000/docs |
 
 **Segurança:** sem autenticação. O compose publica só em `127.0.0.1:8000` (rede confiável). Não use `0.0.0.0` sem auth — ver [TODO.md](TODO.md).
+
+**Cache e rate limit.** Respostas `GET` em JSON ficam em cache na memória por `CNPJ_API_CACHE_TTL` segundos (padrão 300; `0` desliga), até `CNPJ_API_CACHE_MAX` itens (padrão 512), com o cabeçalho `X-Cache: HIT|MISS`. `/health`, `/export` e as rotas `POST` não são cacheadas. O rate limit vem **desligado**; `CNPJ_API_RATE_LIMIT=60` limita a 60 requisições/min por IP (responde `429` com `Retry-After`). Atrás de proxy reverso, `CNPJ_API_TRUST_PROXY=1` usa o `X-Forwarded-For`. Cache e limite são por processo: com vários workers do uvicorn, cada um tem os seus. O `/health` mostra a configuração e os acertos do cache.
 
 Sem Docker:
 

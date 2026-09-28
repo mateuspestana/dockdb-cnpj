@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from dockdb_cnpj.config import DB_PATH, ZIP_DIR  # noqa: E402
+from dockdb_cnpj.config import DB_PATH, KEEP_BACKUPS, ZIP_DIR  # noqa: E402
 from dockdb_cnpj.download import (  # noqa: E402
     consulta_base_webdap,
     download_all,
@@ -52,6 +52,13 @@ def main() -> int:
         action="store_true",
         help="Apagar CSVs após a carga.",
     )
+    parser.add_argument(
+        "--manter-backups",
+        type=int,
+        default=KEEP_BACKUPS,
+        metavar="N",
+        help="Guarda a base anterior (.bak-AAAAMM) e mantém os N mais recentes (0 = não guarda).",
+    )
     args = parser.parse_args()
 
     prev = load_sync_meta()
@@ -80,7 +87,12 @@ def main() -> int:
         print("Download ok (--download-only).")
         return 0
 
-    load_duckdb(extract=True, remove_csv_after=args.remove_csv, db_path=DB_PATH)
+    load_duckdb(
+        extract=True,
+        remove_csv_after=args.remove_csv,
+        db_path=DB_PATH,
+        manter_backups=args.manter_backups,
+    )
     save_sync_meta(listing, {"step": "sync-complete", "db": str(DB_PATH)})
     print("Sync concluído.")
     return 0

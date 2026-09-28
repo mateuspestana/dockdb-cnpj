@@ -31,6 +31,17 @@ WEBDAV_BASE = os.environ.get(
 DEFAULT_QUERY_LIMIT = int(os.environ.get("CNPJ_QUERY_LIMIT", "1000"))
 MAX_QUERY_LIMIT = int(os.environ.get("CNPJ_MAX_QUERY_LIMIT", "10000"))
 
+# API: cache de respostas GET (0 = desliga) e rate limit por IP (0 = desligado)
+API_CACHE_TTL = int(os.environ.get("CNPJ_API_CACHE_TTL", "300"))
+API_CACHE_MAX = int(os.environ.get("CNPJ_API_CACHE_MAX", "512"))
+API_RATE_LIMIT = int(os.environ.get("CNPJ_API_RATE_LIMIT", "0"))  # requisições/min por IP
+API_TRUST_PROXY = os.environ.get("CNPJ_API_TRUST_PROXY", "0") == "1"  # usa X-Forwarded-For
+
+# Retenção: backups da base anterior na recarga e idade máxima de exports
+KEEP_BACKUPS = int(os.environ.get("CNPJ_KEEP_BACKUPS", "0"))
+EXPORTS_MAX_AGE_H = int(os.environ.get("CNPJ_EXPORTS_MAX_AGE_H", "24"))
+EXPORTS_DIR = Path(os.environ.get("CNPJ_EXPORTS_DIR", DATA_DIR / "exports"))
+
 
 def ensure_dirs() -> None:
     ZIP_DIR.mkdir(parents=True, exist_ok=True)

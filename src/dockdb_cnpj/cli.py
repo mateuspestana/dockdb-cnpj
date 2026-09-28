@@ -15,7 +15,14 @@ import typer
 from dockdb_cnpj import __email__, __version__
 from dockdb_cnpj.cnpj import calcular_dv, dv_valido, formatar, limpar
 from dockdb_cnpj.analytics import agregados_municipio, coortes
-from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT
+from dockdb_cnpj.config import (
+    DB_PATH,
+    DEFAULT_QUERY_LIMIT,
+    EXPORTS_DIR,
+    EXPORTS_MAX_AGE_H,
+    KEEP_BACKUPS,
+    MAX_QUERY_LIMIT,
+)
 from dockdb_cnpj.db import connect
 from dockdb_cnpj.enriquecimento import enriquecer, ler_lista, salvar
 from dockdb_cnpj.queries import (
@@ -413,6 +420,65 @@ def upgrade_cmd(
             raise typer.Exit(code=2) from e
         raise
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+@app.command("compactar")
+def compactar_cmd(
+    manter_backup: bool = typer.Option(
+        False, "--manter-backup", help="Guarda a base original como .bak-<data>"
+    ),
+    memoria: Optional[str] = typer.Option(
+        None, "--memoria", help="Limite de RAM do DuckDB, ex.: 16GB (padrão: metade da RAM)"
+    ),
+) -> None:
+    """Reescreve a base num arquivo novo para devolver ao disco o espaço liberado.
+
+    Exige lock exclusivo (feche API/Streamlit) e espaço livre ~ tamanho da base.
+    """
+    from dockdb_cnpj.manutencao import compactar
+
+    try:
+        result = compactar(DB_PATH, manter_backup=manter_backup, memoria=memoria)
+    except Exception as e:
+        msg = str(e).lower()
+        if "lock" in msg or "conflict" in msg:
+            typer.secho(
+                "Não foi possível abrir a base em modo escrita (lock). "
+                "Feche Streamlit/API e tente de novo.",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=2) from e
+        raise
+    result["antes_gb"] = round(result["antes_bytes"] / 1e9, 2)
+    result["depois_gb"] = round(result["depois_bytes"] / 1e9, 2)
+    typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+@app.command("retencao")
+def retencao_cmd(
+    manter_backups: int = typer.Option(
+        KEEP_BACKUPS, help="Quantos backups (.bak-*) da base manter"
+    ),
+    exports_horas: int = typer.Option(
+        EXPORTS_MAX_AGE_H, help="Apagar exports da API mais velhos que N horas (0 = não apaga)"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Só lista o que seria apagado"),
+) -> None:
+    """Aplica a política de retenção: backups antigos da base e exports velhos."""
+    from dockdb_cnpj.manutencao import limpar_backups, limpar_exports, listar_backups
+
+    tamanhos = {p: p.stat().st_size for p in listar_backups(DB_PATH)}
+    backups = limpar_backups(DB_PATH, manter=manter_backups, dry_run=dry_run)
+    exports = limpar_exports(EXPORTS_DIR, max_idade_h=exports_horas, dry_run=dry_run)
+    out = {
+        "dry_run": dry_run,
+        "backups_removidos": [p.name for p in backups],
+        "backups_mantidos": [p.name for p in tamanhos if p not in backups],
+        "liberado_gb": round(sum(tamanhos[p] for p in backups) / 1e9, 2),
+        "exports_removidos": len(exports),
+    }
+    typer.echo(json.dumps(out, ensure_ascii=False, indent=2))
 
 
 @app.command("sql")

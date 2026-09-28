@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from dockdb_cnpj.config import DB_PATH  # noqa: E402
+from dockdb_cnpj.config import DB_PATH, KEEP_BACKUPS  # noqa: E402
 from dockdb_cnpj.load import load_duckdb  # noqa: E402
 
 __author__ = "Matheus Cavalcanti Pestana"
@@ -49,6 +49,16 @@ def main() -> int:
         action="store_true",
         help="Continua carga a partir do checkpoint (não apaga a base).",
     )
+    parser.add_argument(
+        "--manter-backups",
+        type=int,
+        default=KEEP_BACKUPS,
+        metavar="N",
+        help=(
+            "Guarda a base anterior como .bak-AAAAMM e mantém os N mais recentes "
+            f"(default: CNPJ_KEEP_BACKUPS={KEEP_BACKUPS}; 0 = apaga a anterior)."
+        ),
+    )
     args = parser.parse_args()
 
     load_duckdb(
@@ -56,6 +66,7 @@ def main() -> int:
         extract=not args.no_extract,
         remove_csv_after=args.remove_csv or args.cleanup_raw,
         resume=args.resume,
+        manter_backups=args.manter_backups,
     )
     if args.cleanup_raw:
         from dockdb_cnpj.cleanup import cleanup_raw

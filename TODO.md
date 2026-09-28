@@ -19,3 +19,5 @@ Author: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - [ ] Serviço Streamlit no Docker Compose (opcional)
 - [ ] Agendamento de sync (cron) — o script `sync_cnpj.py` já existe; falta só o agendamento do usuário
 - [x] Testes de integração com amostra reduzida dos CSVs da RF (v0.4)
+- [x] CI (ruff, mypy, pytest) no GitHub Actions (v0.6)
+- [x] Rate limit e cache na API (v0.8) — pré-requisitos para expor com auth

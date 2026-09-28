@@ -16,19 +16,32 @@ from pathlib import Path
 from typing import Any, Optional
 
 import duckdb
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from dockdb_cnpj import __email__, __version__  # noqa: E402
 from dockdb_cnpj.analytics import agregados_municipio, coortes  # noqa: E402
+from dockdb_cnpj.cache import RateLimiter, TTLCache  # noqa: E402
 from dockdb_cnpj.cnpj import calcular_dv, formatar, limpar  # noqa: E402
-from dockdb_cnpj.config import DB_PATH, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT  # noqa: E402
+from dockdb_cnpj.config import (  # noqa: E402
+    API_CACHE_MAX,
+    API_CACHE_TTL,
+    API_RATE_LIMIT,
+    API_TRUST_PROXY,
+    DB_PATH,
+    DEFAULT_QUERY_LIMIT,
+    EXPORTS_DIR,
+    EXPORTS_MAX_AGE_H,
+    MAX_QUERY_LIMIT,
+)
 from dockdb_cnpj.db import connect  # noqa: E402
 from dockdb_cnpj.enriquecimento import enriquecer  # noqa: E402
+from dockdb_cnpj.manutencao import limpar_exports  # noqa: E402
 from dockdb_cnpj.queries import (  # noqa: E402
     agregados_cnae,
     agregados_situacao,
@@ -46,6 +59,12 @@ __author__ = "Matheus Cavalcanti Pestana"
 
 _con: duckdb.DuckDBPyConnection | None = None
 
+cache: TTLCache | None = TTLCache(API_CACHE_TTL, API_CACHE_MAX) if API_CACHE_TTL > 0 else None
+limiter: RateLimiter | None = RateLimiter(API_RATE_LIMIT) if API_RATE_LIMIT > 0 else None
+
+SEM_CACHE = {"/health", "/export", "/docs", "/redoc", "/openapi.json"}
+SEM_LIMITE = {"/health"}
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -58,6 +77,8 @@ async def lifespan(_app: FastAPI):
     if _con is not None:
         _con.close()
         _con = None
+    if cache is not None:
+        cache.clear()
 
 
 def get_db() -> Iterator[duckdb.DuckDBPyConnection]:
@@ -90,6 +111,45 @@ app = FastAPI(
 )
 
 
+def _ip(request: Request) -> str:
+    if API_TRUST_PROXY:
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+@app.middleware("http")
+async def cache_e_rate_limit(request: Request, call_next):
+    path = request.url.path
+    if limiter is not None and path not in SEM_LIMITE:
+        ok, espera = limiter.permitir(_ip(request))
+        if not ok:
+            return JSONResponse(
+                {"detail": f"Limite de {limiter.limite} requisições/min excedido."},
+                status_code=429,
+                headers={"Retry-After": str(espera)},
+            )
+
+    cacheavel = cache is not None and request.method == "GET" and path not in SEM_CACHE
+    if not cacheavel:
+        return await call_next(request)
+    assert cache is not None
+    chave = path + "?" + "&".join(f"{k}={v}" for k, v in sorted(request.query_params.multi_items()))
+    hit = cache.get(chave)
+    if hit is not None:
+        return Response(content=hit, media_type="application/json", headers={"X-Cache": "HIT"})
+
+    response = await call_next(request)
+    if response.status_code != 200 or "json" not in response.headers.get("content-type", ""):
+        return response
+    body = b"".join([chunk async for chunk in response.body_iterator])  # type: ignore[attr-defined]
+    cache.set(chave, body)
+    headers = {k: v for k, v in response.headers.items() if k.lower() != "content-length"}
+    headers["X-Cache"] = "MISS"
+    return Response(content=body, status_code=200, headers=headers, media_type="application/json")
+
+
 class QueryBody(BaseModel):
     sql: str = Field(..., description="SELECT ou WITH")
     limit: int = Field(DEFAULT_QUERY_LIMIT, ge=1, le=MAX_QUERY_LIMIT)
@@ -112,6 +172,8 @@ def health() -> dict[str, Any]:
         "author": f"Matheus Cavalcanti Pestana <{__email__}>",
         "version": __version__,
         "auth": "none — trusted network only (see TODO.md)",
+        "cache": cache.stats() if cache is not None else None,
+        "rate_limit_por_min": limiter.limite if limiter is not None else None,
     }
 
 
@@ -289,15 +351,20 @@ def export_empresas(
     params: dict[str, Any] = Depends(_busca_params),
     con: duckdb.DuckDBPyConnection = Db,
 ):
-    out_dir = Path(DB_PATH).parent / "exports"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    dest = out_dir / f"export_{uuid.uuid4().hex}.{formato}"
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    limpar_exports(EXPORTS_DIR, max_idade_h=EXPORTS_MAX_AGE_H)
+    dest = EXPORTS_DIR / f"export_{uuid.uuid4().hex}.{formato}"
     try:
         exportar_busca(con, dest, formato=formato, **params)  # type: ignore[arg-type]
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     media = "text/csv" if formato == "csv" else "application/octet-stream"
-    return FileResponse(dest, media_type=media, filename=f"export.{formato}")
+    return FileResponse(
+        dest,
+        media_type=media,
+        filename=f"export.{formato}",
+        background=BackgroundTask(dest.unlink, missing_ok=True),
+    )
 
 
 @app.post("/query")

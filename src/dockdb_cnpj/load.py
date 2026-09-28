@@ -6,6 +6,7 @@ incluindo correção de sócios a partir de ago/2026 (radical → CNPJ matriz).
 
 v0.5: carga resumível, ponte estabelecimento_cnae, views materializadas, FTS.
 v0.6: tabelas auxiliares versionadas (municipio_ibge).
+v0.8: backup rotativo da base anterior (``manter_backups``).
 
 Author: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 """
@@ -19,8 +20,9 @@ from pathlib import Path
 
 import duckdb
 
-from dockdb_cnpj.config import CSV_DIR, DATA_DIR, DB_PATH, ZIP_DIR, ensure_dirs
+from dockdb_cnpj.config import CSV_DIR, DATA_DIR, DB_PATH, KEEP_BACKUPS, ZIP_DIR, ensure_dirs
 from dockdb_cnpj.db import connect, scalar
+from dockdb_cnpj.manutencao import backup_base, limpar_backups
 from dockdb_cnpj.referencias import build_referencias
 from dockdb_cnpj.validate import validar_base
 
@@ -571,11 +573,14 @@ def load_duckdb(
     build_fts: bool = True,
     build_refs: bool = True,
     run_validate: bool = True,
+    manter_backups: int = KEEP_BACKUPS,
 ) -> Path:
     """Extrai ZIPs (opcional) e cria/substitui a base DuckDB.
 
     Com ``resume=True``, continua a partir do checkpoint
     (``{db}.load_checkpoint.json``) sem apagar a base.
+    Com ``manter_backups > 0``, a base anterior vira ``{db}.bak-AAAAMM`` e só
+    os N backups mais recentes são mantidos.
     """
     ensure_dirs()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -595,7 +600,9 @@ def load_duckdb(
     if resume and db_path.exists():
         print(f"Resume ativo — steps feitos: {sorted(completed) or '(nenhum)'}")
     else:
-        if db_path.exists():
+        if db_path.exists() and manter_backups > 0:
+            print(f"Base anterior guardada em {backup_base(db_path)}")
+        elif db_path.exists():
             print(f"Removendo base existente {db_path}")
             db_path.unlink()
             wal = Path(str(db_path) + ".wal")
@@ -765,6 +772,9 @@ def load_duckdb(
     ckpt_final = _load_checkpoint(db_path)
     if "post_process" in set(ckpt_final.get("completed") or []):
         _clear_checkpoint(db_path)
+        if manter_backups > 0:
+            for p in limpar_backups(db_path, manter=manter_backups):
+                print(f"Backup antigo removido: {p.name}")
 
     if remove_csv_after:
         for p in csv_dir.iterdir():

@@ -84,3 +84,49 @@ def test_agregados_api(client: TestClient) -> None:
     mun = client.get("/agregados/municipio").json()
     assert mun and "latitude" in mun[0]
     assert client.get("/agregados/cnae", params={"nivel": "x"}).status_code == 400
+
+
+def test_cache_hit_miss(client: TestClient) -> None:
+    from dockdb_cnpj.cache import TTLCache
+
+    api_main = sys.modules["api.main"]
+    api_main.cache = TTLCache(300, 10)
+    try:
+        r1 = client.get("/empresas", params={"uf": "RJ"})
+        r2 = client.get("/empresas", params={"uf": "RJ"})
+        assert r1.headers["x-cache"] == "MISS" and r2.headers["x-cache"] == "HIT"
+        assert r1.json() == r2.json()
+        assert client.get("/empresas", params={"uf": "SP"}).headers["x-cache"] == "MISS"
+        assert "x-cache" not in client.get("/health").headers
+        assert client.get("/cnpj/123").status_code == 400
+        assert api_main.cache.get("/cnpj/123?") is None  # erro não é cacheado
+        assert client.get("/health").json()["cache"]["hits"] >= 1
+    finally:
+        api_main.cache = None
+
+
+def test_rate_limit(client: TestClient) -> None:
+    from dockdb_cnpj.cache import RateLimiter
+
+    api_main = sys.modules["api.main"]
+    api_main.limiter = RateLimiter(2)
+    try:
+        assert client.get("/referencia").status_code == 200
+        assert client.get("/referencia").status_code == 200
+        r = client.get("/referencia")
+        assert r.status_code == 429 and int(r.headers["retry-after"]) > 0
+        assert client.get("/health").status_code == 200  # isento
+    finally:
+        api_main.limiter = None
+
+
+def test_export_apaga_arquivo(client: TestClient, tmp_path: Path) -> None:
+    api_main = sys.modules["api.main"]
+    original = api_main.EXPORTS_DIR
+    api_main.EXPORTS_DIR = tmp_path
+    try:
+        r = client.get("/export", params={"formato": "csv", "uf": "SP"})
+        assert r.status_code == 200 and b"cnpj" in r.content
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        api_main.EXPORTS_DIR = original

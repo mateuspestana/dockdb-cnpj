@@ -489,16 +489,22 @@ def buscar_empresas(
         fuzzy=fuzzy,
     )
     if use_fts and q:
-        # BM25: exige score e ordena — sem ORDER BY o LIMIT pega matches fracos (ex.: só "DO")
-        clauses.append("fts_main_empresas.match_bm25(e.cnpj_basico, ?) IS NOT NULL")
-        params.append(q)
-        fts_score_select = "fts_main_empresas.match_bm25(e.cnpj_basico, ?) AS _fts_score,"
-        fts_score_params: list[Any] = [q]
+        # BM25 calculado antes, só sobre empresas: no join com estabelecimento o DuckDB
+        # avalia o score linha a linha (~1 min). Ordena pelo score — sem ORDER BY o
+        # LIMIT pega matches fracos (ex.: só "DO").
+        fts_cte = """WITH fts AS MATERIALIZED (
+            SELECT cnpj_basico, score FROM (
+                SELECT cnpj_basico, fts_main_empresas.match_bm25(cnpj_basico, ?) AS score
+                FROM empresas
+            ) WHERE score IS NOT NULL
+        )"""
+        fts_join = "JOIN fts ON fts.cnpj_basico = est.cnpj_basico"
+        fts_score_select = "fts.score AS _fts_score,"
+        fts_params: list[Any] = [q]
         order_by = "ORDER BY _fts_score DESC NULLS LAST"
     else:
-        fts_score_select = ""
-        fts_score_params = []
-        order_by = ""
+        fts_cte = fts_join = fts_score_select = order_by = ""
+        fts_params = []
 
     simples_join = (
         "LEFT JOIN simples si ON si.cnpj_basico = est.cnpj_basico" if need_simples else ""
@@ -506,6 +512,7 @@ def buscar_empresas(
     extras_select, extras_join = colunas_extras(con)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
+        {fts_cte}
         SELECT
             est.cnpj,
             e.razao_social,
@@ -526,6 +533,7 @@ def buscar_empresas(
             e.capital_social,
             est.data_inicio_atividades
         FROM estabelecimento est
+        {fts_join}
         JOIN empresas e ON e.cnpj_basico = est.cnpj_basico
         LEFT JOIN municipio m ON m.codigo = est.municipio
         {extras_join}
@@ -535,8 +543,8 @@ def buscar_empresas(
         {order_by}
         LIMIT {limit}
     """
-    # Ordem dos ?: SELECT (cnae_origem + fts_score) depois WHERE
-    return fetch_dicts(con, sql, cnae_origem_params + fts_score_params + params)
+    # Ordem dos ?: CTE do FTS, SELECT (cnae_origem), WHERE
+    return fetch_dicts(con, sql, fts_params + cnae_origem_params + params)
 
 
 def buscar_socios(
