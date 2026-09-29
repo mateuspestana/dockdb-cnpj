@@ -5,6 +5,12 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 
+## [0.9.0] — 2026-09-29
+
+### Added
+
+- `SKILL.md` na raiz do projeto: guia de uso para agentes de IA (Goal, setup, comandos da CLI por caso de uso, workflow, gotchas — CNPJ alfanumérico, município TOM/SIAFI vs IBGE, guarda de SQL livre, ausência de auth na API). Não muda nenhum comportamento de código, só documentação agent-facing.
+
 ## [0.8.0] — 2026-09-27
 
 ### Added
@@ -145,6 +151,7 @@ Autor: Matheus Cavalcanti Pestana <matheus.pestana@fgv.br>
 - README com crédito ao [cnpj-sqlite](https://github.com/rictom/cnpj-sqlite)
 - `TODO.md` com autenticação da API pendente
 
+[0.9.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mateuspestana/DockDB-CNPJ/compare/v0.5.2...v0.6.0
