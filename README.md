@@ -9,7 +9,8 @@
 Base pública de CNPJ da Receita Federal em **[DuckDB](https://duckdb.org/)**, com download, carga, sync, CLI, Streamlit e API em Docker.
 
 **Autor:** [Matheus Cavalcanti Pestana](mailto:matheus.pestana@fgv.br) · `matheus.pestana@fgv.br`  
-**Licença:** [MIT](LICENSE) · **Versão:** ver [CHANGELOG.md](CHANGELOG.md)
+**Licença:** [MIT](LICENSE) · **Versão:** ver [CHANGELOG.md](CHANGELOG.md)  
+**Para agentes de IA:** ver [SKILL.md](SKILL.md) — guia de uso da CLI por caso de uso, direto na base local.
 
 ## Referência
 
